@@ -1,0 +1,9 @@
+{
+  "name": "stdio_bus_autoresearch",
+  "version": "0.1.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@stdiobus/workers-registry": "^1.4.12"
+  }
+}

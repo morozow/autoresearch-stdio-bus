@@ -18,6 +18,7 @@ AGENTS.md
 
 # Experimental code/artifacts
 dev/
+.kiro
 
 # Results file
 results.tsv

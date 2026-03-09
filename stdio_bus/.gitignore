@@ -1,0 +1,11 @@
+node_modules
+*.d.ts
+*.d.ts.map
+stdio_bus
+
+# Optional
+*.md
+*.json
+!package.json
+
+

@@ -487,9 +487,14 @@ def build_model_config(depth):
 config = build_model_config(DEPTH)
 print(f"Model config: {asdict(config)}")
 
-with torch.device("meta"):
-    model = GPT(config)
-model.to_empty(device=device)
+# Create model - use meta device trick only on CUDA
+if device.type == "cuda":
+    with torch.device("meta"):
+        model = GPT(config)
+    model.to_empty(device=device)
+else:
+    # MPS/CPU: create directly on device
+    model = GPT(config).to(device)
 model.init_weights()
 
 param_counts = model.num_scaling_params()

@@ -86,8 +86,16 @@ class CausalSelfAttention(nn.Module):
         cos, sin = cos_sin
         q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         q, k = norm(q), norm(k)
-
-        y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
+        # ---------------------------------------------------------------
+        # Native PyTorch scaled‑dot‑product attention (SDPA) fallback.
+        # q/k/v are (B, T, H, D); SDPA expects (B, H, T, D).
+        # After attention we transpose back and reshape.
+        # ---------------------------------------------------------------
+        q_sdpa = q.transpose(1, 2)   # (B, H, T, D)
+        k_sdpa = k.transpose(1, 2)
+        v_sdpa = v.transpose(1, 2)
+        y = F.scaled_dot_product_attention(q_sdpa, k_sdpa, v_sdpa, is_causal=True)
+        y = y.transpose(1, 2)       # back to (B, T, H, D)
         y = y.contiguous().view(B, T, -1)
         y = self.c_proj(y)
         return y

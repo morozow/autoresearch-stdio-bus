@@ -41,9 +41,14 @@ interface CliOptions {
 }
 
 function parseArgs(args: string[]): CliOptions {
+  // Generate timestamp for log file: YYYY-MM-DD_HH-MM-SS
+  const now = new Date();
+  const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const defaultLogPath = `./logs/swarm-${timestamp}.log`;
+
   const options: CliOptions = {
     configPath: process.env.SWARM_CONFIG ?? './swarm-config.json',
-    logPath: process.env.SWARM_LOG ?? './swarm.log',
+    logPath: process.env.SWARM_LOG ?? defaultLogPath,
     help: false,
     version: false,
   };
@@ -154,13 +159,28 @@ async function main(): Promise<void> {
 
   const config = validationResult.config;
 
+  // Determine working directory: use config.swarm.workDir if specified, otherwise config file directory
+  let workDir = path.dirname(configPath);
+  if (config.swarm.workDir) {
+    // If workDir is relative, resolve it relative to config file directory
+    workDir = path.isAbsolute(config.swarm.workDir)
+      ? config.swarm.workDir
+      : path.resolve(path.dirname(configPath), config.swarm.workDir);
+  }
+
+  // Ensure log directory exists
+  const logDir = path.dirname(logPath);
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+
   // Create file logger
   const fileLogger = new FileLogger(logPath);
 
   // Create coordinator with stderr for progress (keeps stdout clean for JSON-RPC)
   const coordinator = createSwarmCoordinator({
     fileLogger,
-    workDir: path.dirname(configPath),
+    workDir,
   });
 
   // Set progress writer to stderr (stdout is for JSON-RPC messages)

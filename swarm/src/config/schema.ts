@@ -28,6 +28,8 @@ export interface SwarmSettings {
   apiKeys?: string;
   experimentTimeout?: number;
   lockTimeout?: number;
+  /** Working directory for experiments. Defaults to config file directory. */
+  workDir?: string;
 }
 
 /**
@@ -232,6 +234,11 @@ function validateSwarmSettings(swarm: unknown, errors: ValidationError[]): swarm
     if (typeof s.lockTimeout !== 'number' || !Number.isInteger(s.lockTimeout) || s.lockTimeout < 1) {
       errors.push({ path: `${path}.lockTimeout`, message: 'lockTimeout must be a positive integer' });
     }
+  }
+
+  // Optional: workDir
+  if (s.workDir !== undefined && typeof s.workDir !== 'string') {
+    errors.push({ path: `${path}.workDir`, message: 'workDir must be a string' });
   }
 
   return true;

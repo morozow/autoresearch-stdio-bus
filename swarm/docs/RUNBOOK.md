@@ -99,6 +99,46 @@ node dist/cli.js
 
 Note: macOS typically doesn't have NVIDIA GPUs. Use mock mode for testing.
 
+### macOS with Apple Silicon (MPS)
+
+For Apple Silicon Macs (M1/M2/M3), use MPS (Metal Performance Shaders) backend:
+
+```bash
+# Install dependencies
+brew install node
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Set up Python environment with PyTorch MPS support
+uv venv
+source .venv/bin/activate
+uv pip install torch torchvision torchaudio
+
+# Build swarm
+cd swarm
+npm install
+npm run build
+
+# Run with MPS backend
+DEVICE_BACKEND=mps node dist/cli.js --config swarm-config-mps.json
+```
+
+The `swarm-config-mps.json` configuration:
+```json
+{
+  "pools": [{ "id": "mps-worker", "command": "echo", "args": ["placeholder"], "instances": 1 }],
+  "swarm": {
+    "gpuIds": [0],
+    "experimentTimeout": 10,
+    "workDir": ".."
+  }
+}
+```
+
+Key differences from CUDA:
+- Only one GPU (gpuId 0) - MPS uses unified memory
+- `workDir` points to project root where `.venv` is located
+- `DEVICE_BACKEND=mps` environment variable must be set
+
 ### Linux (Ubuntu/Debian)
 
 ```bash
@@ -155,7 +195,37 @@ EOF
 ./stdio_bus --config stdio-bus-config.json
 ```
 
-### Option 2: Pipe Mode
+### Option 2: stdio_bus with MPS (Apple Silicon)
+
+```bash
+# From stdio_bus/bus directory
+DEVICE_BACKEND=mps ./stdio_bus --config stdio-bus-config.json
+```
+
+The `stdio-bus-config.json` for MPS:
+```json
+{
+  "pools": [
+    {
+      "id": "acp-worker",
+      "command": "npx",
+      "args": ["@stdiobus/workers-registry", "acp-registry", "--custom-agents", "./openai-agents.json"],
+      "instances": 1
+    },
+    {
+      "id": "swarm-coordinator",
+      "command": "node",
+      "args": ["../../swarm/dist/cli.js", "--config", "../../swarm/swarm-config-mps.json"],
+      "env": { "DEVICE_BACKEND": "mps" },
+      "instances": 1
+    }
+  ]
+}
+```
+
+Note: Set `DEVICE_BACKEND=mps` globally when launching stdio_bus, as env from config may not be passed to child processes.
+
+### Option 3: Pipe Mode
 
 ```bash
 # stdio_bus as message router
@@ -279,6 +349,7 @@ kill -9 <coordinator_pid>
 | `swarm.gpuIds` | `[0,1,2,3]` | GPU IDs to use |
 | `swarm.experimentTimeout` | `10` | Max experiment time (minutes) |
 | `swarm.lockTimeout` | `10` | Max lock hold time (minutes) |
+| `swarm.workDir` | config dir | Working directory for experiments |
 | `limits.max_input_buffer` | `4194304` | Input buffer size (bytes) |
 | `limits.max_output_queue` | `16777216` | Output queue size (bytes) |
 | `limits.max_restarts` | `10` | Max worker restarts |

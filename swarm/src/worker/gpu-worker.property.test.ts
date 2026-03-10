@@ -42,7 +42,7 @@ function createSilentLogger(): GpuWorkerLogger {
  */
 function createMockGpuChecker(available: boolean = true, memoryMb: number = 24000): GpuChecker {
   return {
-    async checkAvailable(_gpuId: number): Promise<boolean> {
+    async checkAvailable(_gpuId: number, _workDir?: string): Promise<boolean> {
       return available;
     },
     async getMemoryCapacity(_gpuId: number): Promise<number> {

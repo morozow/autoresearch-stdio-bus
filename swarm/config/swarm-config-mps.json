@@ -1,28 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$comment": "Example 4-GPU swarm configuration for autoresearch. See CONFIG.md for documentation.",
+  "$comment": "MPS (Apple Silicon) swarm configuration for autoresearch.",
   "pools": [
     {
-      "id": "gpu-worker",
-      "command": "node",
+      "id": "mps-worker",
+      "command": "echo",
       "args": [
-        "./dist/worker/gpu-worker.js"
+        "placeholder"
       ],
-      "env": {},
-      "instances": 4
+      "instances": 1
     }
   ],
   "swarm": {
     "gpuIds": [
-      0,
-      1,
-      2,
-      3
+      0
     ],
-    "agentModel": "claude-acp",
-    "apiKeys": "${ANTHROPIC_API_KEY}",
     "experimentTimeout": 10,
-    "lockTimeout": 10
+    "lockTimeout": 10,
+    "workDir": "../.."
   },
   "limits": {
     "max_input_buffer": 4194304,

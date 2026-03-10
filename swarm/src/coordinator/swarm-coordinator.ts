@@ -178,7 +178,7 @@ export interface SwarmCoordinatorLogger {
  */
 export const defaultSwarmCoordinatorLogger: SwarmCoordinatorLogger = {
   info(message: string, context?: Record<string, unknown>): void {
-    console.info(`[swarm-coordinator] ${message}`, context ?? '');
+    console.error(`[swarm-coordinator] ${message}`, context ?? '');
   },
   warn(message: string, context?: Record<string, unknown>): void {
     console.warn(`[swarm-coordinator] ${message}`, context ?? '');

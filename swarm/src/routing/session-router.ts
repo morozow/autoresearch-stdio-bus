@@ -65,7 +65,7 @@ export interface SessionRouterLogger {
  */
 export const defaultSessionRouterLogger: SessionRouterLogger = {
   info(message: string, context?: Record<string, unknown>): void {
-    console.info(`[session-router] ${message}`, context ?? '');
+    console.error(`[session-router] ${message}`, context ?? '');
   },
   warn(message: string, context?: Record<string, unknown>): void {
     console.warn(`[session-router] ${message}`, context ?? '');

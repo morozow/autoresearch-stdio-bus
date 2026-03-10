@@ -54,7 +54,7 @@ export interface GpuWorkerLogger {
  */
 export const defaultGpuWorkerLogger: GpuWorkerLogger = {
   info(message: string, context?: Record<string, unknown>): void {
-    console.info(`[gpu-worker] ${message}`, context ?? '');
+    console.error(`[gpu-worker] ${message}`, context ?? '');
   },
   warn(message: string, context?: Record<string, unknown>): void {
     console.warn(`[gpu-worker] ${message}`, context ?? '');
@@ -94,7 +94,7 @@ export const defaultCommandExecutor: CommandExecutor = {
  * Allows injection of mock checker for testing.
  */
 export interface GpuChecker {
-  checkAvailable(gpuId: number): Promise<boolean>;
+  checkAvailable(gpuId: number, workDir?: string): Promise<boolean>;
   getMemoryCapacity(gpuId: number): Promise<number>;
 }
 
@@ -102,7 +102,7 @@ export interface GpuChecker {
  * Default GPU checker using nvidia-smi for CUDA or Python check for MPS.
  */
 export const defaultGpuChecker: GpuChecker = {
-  async checkAvailable(gpuId: number): Promise<boolean> {
+  async checkAvailable(gpuId: number, workDir?: string): Promise<boolean> {
     const deviceBackend = process.env.DEVICE_BACKEND?.toLowerCase() ?? 'cuda';
 
     if (deviceBackend === 'mps') {
@@ -112,18 +112,28 @@ export const defaultGpuChecker: GpuChecker = {
         return false;
       }
       try {
-        // Try venv python first (relative to workDir), then system python
+        // Build list of python paths to try, prioritizing workDir if provided
+        const pythonPaths: string[] = [];
+
+        if (workDir) {
+          // Absolute path from workDir (most reliable)
+          pythonPaths.push(path.join(workDir, '.venv', 'bin', 'python3'));
+          pythonPaths.push(path.join(workDir, '.venv', 'bin', 'python'));
+        }
+
+        // Also try relative to cwd as fallback
         const cwd = process.cwd();
-        const pythonPaths = [
-          `${cwd}/.venv/bin/python3`,
-          `${cwd}/../.venv/bin/python3`,  // If running from swarm subdir
-          '.venv/bin/python3',
+        pythonPaths.push(
+          path.join(cwd, '.venv', 'bin', 'python3'),
+          path.join(cwd, '..', '.venv', 'bin', 'python3'),
+          path.join(cwd, '..', '..', '.venv', 'bin', 'python3'),
           'python3',
           'python'
-        ];
+        );
+
         for (const pythonPath of pythonPaths) {
           try {
-            const { stdout } = await execAsync(`${pythonPath} -c "import torch; print(torch.backends.mps.is_available())"`);
+            const { stdout } = await execAsync(`"${pythonPath}" -c "import torch; print(torch.backends.mps.is_available())"`);
             if (stdout.trim().toLowerCase() === 'true') {
               return true;
             }
@@ -505,10 +515,11 @@ export class GpuWorker {
    * Validates: Requirements 3.3
    */
   async checkGpuAvailable(): Promise<boolean> {
-    const available = await this.gpuChecker.checkAvailable(this.gpuId);
+    const available = await this.gpuChecker.checkAvailable(this.gpuId, this.workDir);
     this.logger.info('GPU availability check', {
       gpuId: this.gpuId,
       available,
+      workDir: this.workDir,
     });
     return available;
   }

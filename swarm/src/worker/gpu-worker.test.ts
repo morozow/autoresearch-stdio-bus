@@ -228,7 +228,7 @@ describe('GpuWorker', () => {
 
       await worker.start();
 
-      expect(gpuChecker.checkAvailable).toHaveBeenCalledWith(1);
+      expect(gpuChecker.checkAvailable).toHaveBeenCalledWith(1, '/tmp/test-workdir');
       expect(worker.getState()).toBe('running');
     });
 
@@ -258,7 +258,7 @@ describe('GpuWorker', () => {
       const available = await worker.checkGpuAvailable();
 
       expect(available).toBe(true);
-      expect(gpuChecker.checkAvailable).toHaveBeenCalledWith(0);
+      expect(gpuChecker.checkAvailable).toHaveBeenCalledWith(0, '/tmp/test-workdir');
     });
 
     it('should get memory capacity', async () => {
@@ -309,7 +309,7 @@ describe('GpuWorker', () => {
 
       expect(worker.getGpuId()).toBe(5);
       expect(worker.getAgentId()).toBe('agent-5');
-      expect(gpuChecker.checkAvailable).toHaveBeenCalledWith(5);
+      expect(gpuChecker.checkAvailable).toHaveBeenCalledWith(5, '/tmp/test-workdir');
     });
   });
 

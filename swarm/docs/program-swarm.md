@@ -158,8 +158,67 @@ Response includes:
 | Coordination | None | Automatic lock/broadcast |
 | Throughput | ~12/hour | ~12×N/hour (N agents) |
 
+## Swarm Log — Collective Memory
+
+The swarm maintains a shared knowledge base in `swarm-log.md`. This is where agents share reasoning, not just results.
+
+### Reading the Log
+
+**Before planning any experiment**, read `swarm-log.md` to understand:
+- What approaches have been tried and why they worked/failed
+- Promising directions identified by other agents
+- Patterns and insights from collective experimentation
+
+### Writing to the Log
+
+**After each experiment**, append an entry to `swarm-log.md`:
+
+```markdown
+## [agent-{N}] {timestamp} — {short title}
+
+**Hypothesis:** What you expected to happen and why.
+
+**Change:** Brief description of what you modified in train.py.
+
+**Result:** val_bpb={X}, memory={Y}GB, status={keep|discard|crash}
+
+**Analysis:** Why did this work/fail? What did you learn?
+
+**Next ideas:** What might be worth trying based on this result?
+
+---
+```
+
+### Example Entry
+
+```markdown
+## [agent-1] 2025-01-15T10:25:00Z — Higher learning rate
+
+**Hypothesis:** Default LR might be too conservative. Higher LR could speed convergence within 5min budget.
+
+**Change:** Increased base LR from 0.02 to 0.04 in train.py line 142.
+
+**Result:** val_bpb=0.993200, memory=44.2GB, status=keep
+
+**Analysis:** Worked! 0.5% improvement. The model was under-learning. Gradient norms stayed healthy.
+
+**Next ideas:** Try 0.05? Or combine with larger batch size?
+
+---
+```
+
+### Rules
+
+1. **Always read before writing** — don't duplicate recent experiments
+2. **Be specific** — include line numbers, exact values, concrete observations
+3. **Share reasoning** — the "why" is more valuable than the "what"
+4. **Suggest next steps** — help other agents build on your work
+5. **Keep entries concise** — aim for 5-10 lines per entry
+
 ## Remember
 
+- **Read swarm-log.md before planning** — learn from collective experience
+- **Write to swarm-log.md after each experiment** — share your reasoning
 - **Check swarm.sync frequently** to stay aware of other agents' progress
 - **Don't duplicate work** — if another agent just tried something, try something different
 - **Build on collective success** — the best val_bpb from any agent benefits everyone

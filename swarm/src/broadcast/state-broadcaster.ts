@@ -70,7 +70,7 @@ export interface StateBroadcasterLogger {
  */
 export const defaultStateBroadcasterLogger: StateBroadcasterLogger = {
   info(message: string, context?: Record<string, unknown>): void {
-    console.info(`[state-broadcaster] ${message}`, context ?? '');
+    console.error(`[state-broadcaster] ${message}`, context ?? '');
   },
   warn(message: string, context?: Record<string, unknown>): void {
     console.warn(`[state-broadcaster] ${message}`, context ?? '');

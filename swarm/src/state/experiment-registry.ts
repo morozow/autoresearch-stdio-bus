@@ -90,7 +90,7 @@ export interface ExperimentRegistryLogger {
  */
 export const defaultExperimentRegistryLogger: ExperimentRegistryLogger = {
   info(message: string, context?: Record<string, unknown>): void {
-    console.info(`[experiment-registry] ${message}`, context ?? '');
+    console.error(`[experiment-registry] ${message}`, context ?? '');
   },
   warn(message: string, context?: Record<string, unknown>): void {
     console.warn(`[experiment-registry] ${message}`, context ?? '');

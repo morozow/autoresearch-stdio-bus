@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  stdio-bus:
+    image: stdiobus/stdiobus:latest
+    volumes:
+      - ./stdio_bus/bus:/config
+      - ./swarm:/swarm
+      - ./.venv:/app/.venv
+      - ./train.py:/app/train.py
+      - ./prepare.py:/app/prepare.py
+    working_dir: /config
+    environment:
+      - DEVICE_BACKEND=mps
+    stdin_open: true
+    tty: true
+    command: ["./stdio_bus", "-c", "stdio-bus-config.json"]

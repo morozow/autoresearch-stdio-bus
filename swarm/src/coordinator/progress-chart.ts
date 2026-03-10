@@ -101,7 +101,7 @@ export interface ChartGeneratorLogger {
  */
 export const defaultChartLogger: ChartGeneratorLogger = {
   info(message: string, context?: Record<string, unknown>): void {
-    console.info(`[progress-chart] ${message}`, context ?? '');
+    console.error(`[progress-chart] ${message}`, context ?? '');
   },
   warn(message: string, context?: Record<string, unknown>): void {
     console.warn(`[progress-chart] ${message}`, context ?? '');

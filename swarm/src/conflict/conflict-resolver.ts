@@ -94,7 +94,7 @@ export interface ConflictResolverLogger {
  */
 export const defaultConflictResolverLogger: ConflictResolverLogger = {
   info(message: string, context?: Record<string, unknown>): void {
-    console.info(`[conflict-resolver] ${message}`, context ?? '');
+    console.error(`[conflict-resolver] ${message}`, context ?? '');
   },
   warn(message: string, context?: Record<string, unknown>): void {
     console.warn(`[conflict-resolver] ${message}`, context ?? '');

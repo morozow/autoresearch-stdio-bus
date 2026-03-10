@@ -1,8 +1,4 @@
 """
-# ---------------------------------------------------------------------------
-# Backend handling – flash‑attention kernels not available; use native SDPA
-# ---------------------------------------------------------------------------
-fa3 = None   # fallback to PyTorch scaled_dot_product_attention
 Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
@@ -19,6 +15,12 @@ from dataclasses import dataclass, asdict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from kernels import get_kernel
+cap = torch.cuda.get_device_capability()
+# varunneal's FA3 is Hopper only, use kernels-community on non-Hopper GPUs
+repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
+fa3 = get_kernel(repo).flash_attn_interface
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
@@ -86,16 +88,8 @@ class CausalSelfAttention(nn.Module):
         cos, sin = cos_sin
         q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         q, k = norm(q), norm(k)
-        # ---------------------------------------------------------------
-        # Native PyTorch scaled‑dot‑product attention (SDPA) fallback.
-        # q/k/v are (B, T, H, D); SDPA expects (B, H, T, D).
-        # After attention we transpose back and reshape.
-        # ---------------------------------------------------------------
-        q_sdpa = q.transpose(1, 2)   # (B, H, T, D)
-        k_sdpa = k.transpose(1, 2)
-        v_sdpa = v.transpose(1, 2)
-        y = F.scaled_dot_product_attention(q_sdpa, k_sdpa, v_sdpa, is_causal=True)
-        y = y.transpose(1, 2)       # back to (B, T, H, D)
+
+        y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
         y = y.contiguous().view(B, T, -1)
         y = self.c_proj(y)
         return y
@@ -461,21 +455,10 @@ DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 
 t_start = time.time()
 torch.manual_seed(42)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(42)
+torch.cuda.manual_seed(42)
 torch.set_float32_matmul_precision("high")
-
-# Device selection: CUDA > MPS > CPU
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-    autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-    autocast_ctx = torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16)  # MPS doesn't support autocast
-else:
-    device = torch.device("cpu")
-    autocast_ctx = torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16)
-
+device = torch.device("cuda")
+autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
 H100_BF16_PEAK_FLOPS = 989.5e12
 
 tokenizer = Tokenizer.from_directory()
@@ -495,14 +478,9 @@ def build_model_config(depth):
 config = build_model_config(DEPTH)
 print(f"Model config: {asdict(config)}")
 
-# Create model - use meta device trick only on CUDA
-if device.type == "cuda":
-    with torch.device("meta"):
-        model = GPT(config)
-    model.to_empty(device=device)
-else:
-    # MPS/CPU: create directly on device
-    model = GPT(config).to(device)
+with torch.device("meta"):
+    model = GPT(config)
+model.to_empty(device=device)
 model.init_weights()
 
 param_counts = model.num_scaling_params()

@@ -257,8 +257,8 @@ describe('Property 4: TSV Format Completeness', () => {
           const commitIndex = headers.indexOf('commit');
 
           expect(commitIndex).toBeGreaterThanOrEqual(0);
-          expect(rows[0][commitIndex]).toBeTruthy();
-          expect(rows[0][commitIndex].length).toBeGreaterThan(0);
+          expect(rows[0]![commitIndex]).toBeTruthy();
+          expect(rows[0]![commitIndex].length).toBeGreaterThan(0);
 
           return true;
         }),
@@ -278,7 +278,7 @@ describe('Property 4: TSV Format Completeness', () => {
           const valBpbIndex = headers.indexOf('val_bpb');
 
           expect(valBpbIndex).toBeGreaterThanOrEqual(0);
-          const valBpbStr = rows[0][valBpbIndex];
+          const valBpbStr = rows[0]![valBpbIndex];
           const valBpb = parseFloat(valBpbStr);
 
           expect(isNaN(valBpb)).toBe(false);
@@ -303,7 +303,7 @@ describe('Property 4: TSV Format Completeness', () => {
           const memoryGbIndex = headers.indexOf('memory_gb');
 
           expect(memoryGbIndex).toBeGreaterThanOrEqual(0);
-          const memoryGbStr = rows[0][memoryGbIndex];
+          const memoryGbStr = rows[0]![memoryGbIndex];
           const memoryGb = parseFloat(memoryGbStr);
 
           expect(isNaN(memoryGb)).toBe(false);
@@ -328,7 +328,7 @@ describe('Property 4: TSV Format Completeness', () => {
           const statusIndex = headers.indexOf('status');
 
           expect(statusIndex).toBeGreaterThanOrEqual(0);
-          const status = rows[0][statusIndex];
+          const status = rows[0]![statusIndex];
 
           expect(['keep', 'discard', 'crash']).toContain(status);
 
@@ -350,8 +350,8 @@ describe('Property 4: TSV Format Completeness', () => {
           const agentIdIndex = headers.indexOf('agent_id');
 
           expect(agentIdIndex).toBeGreaterThanOrEqual(0);
-          expect(rows[0][agentIdIndex]).toBeTruthy();
-          expect(rows[0][agentIdIndex].length).toBeGreaterThan(0);
+          expect(rows[0]![agentIdIndex]).toBeTruthy();
+          expect(rows[0]![agentIdIndex].length).toBeGreaterThan(0);
 
           return true;
         }),
@@ -371,8 +371,8 @@ describe('Property 4: TSV Format Completeness', () => {
           const timestampIndex = headers.indexOf('timestamp');
 
           expect(timestampIndex).toBeGreaterThanOrEqual(0);
-          expect(rows[0][timestampIndex]).toBeTruthy();
-          expect(rows[0][timestampIndex].length).toBeGreaterThan(0);
+          expect(rows[0]![timestampIndex]).toBeTruthy();
+          expect(rows[0]![timestampIndex].length).toBeGreaterThan(0);
 
           return true;
         }),
@@ -392,8 +392,8 @@ describe('Property 4: TSV Format Completeness', () => {
           const branchIndex = headers.indexOf('branch');
 
           expect(branchIndex).toBeGreaterThanOrEqual(0);
-          expect(rows[0][branchIndex]).toBeTruthy();
-          expect(rows[0][branchIndex].length).toBeGreaterThan(0);
+          expect(rows[0]![branchIndex]).toBeTruthy();
+          expect(rows[0]![branchIndex].length).toBeGreaterThan(0);
 
           return true;
         }),
@@ -559,13 +559,13 @@ describe('Property 4: TSV Format Completeness', () => {
           const row = rows[0];
 
           // Verify values match
-          expect(row[commitIndex]).toBe(result.commit);
-          expect(parseFloat(row[valBpbIndex])).toBeCloseTo(result.valBpb, 5);
-          expect(parseFloat(row[memoryGbIndex])).toBeCloseTo(result.memoryGb, 0);
-          expect(row[statusIndex]).toBe(result.status);
-          expect(row[agentIdIndex]).toBe(result.agentId);
-          expect(row[timestampIndex]).toBe(result.timestamp);
-          expect(row[branchIndex]).toBe(result.branch);
+          expect(row![commitIndex]).toBe(result.commit);
+          expect(parseFloat(row![valBpbIndex])).toBeCloseTo(result.valBpb, 5);
+          expect(parseFloat(row![memoryGbIndex])).toBeCloseTo(result.memoryGb, 0);
+          expect(row![statusIndex]).toBe(result.status);
+          expect(row![agentIdIndex]).toBe(result.agentId);
+          expect(row![timestampIndex]).toBe(result.timestamp);
+          expect(row![branchIndex]).toBe(result.branch);
 
           return true;
         }),
@@ -894,8 +894,8 @@ describe('Property 5: State Query Response Correctness', () => {
 
           // Verify ordering: each result should have a timestamp >= the next result
           for (let i = 0; i < recentResults.length - 1; i++) {
-            const currentTime = new Date(recentResults[i].timestamp).getTime();
-            const nextTime = new Date(recentResults[i + 1].timestamp).getTime();
+            const currentTime = new Date(recentResults[i]!.timestamp).getTime();
+            const nextTime = new Date(recentResults[i + 1]!.timestamp).getTime();
             expect(currentTime).toBeGreaterThanOrEqual(nextTime);
           }
 
@@ -921,7 +921,7 @@ describe('Property 5: State Query Response Correctness', () => {
           );
 
           // First result should have the most recent timestamp
-          const firstResultTime = new Date(recentResults[0].timestamp).getTime();
+          const firstResultTime = new Date(recentResults[0]!.timestamp).getTime();
           expect(firstResultTime).toBe(mostRecentTimestamp);
 
           return true;
@@ -946,7 +946,7 @@ describe('Property 5: State Query Response Correctness', () => {
           );
 
           // Last result should have the oldest timestamp
-          const lastResultTime = new Date(recentResults[recentResults.length - 1].timestamp).getTime();
+          const lastResultTime = new Date(recentResults[recentResults.length - 1]!.timestamp).getTime();
           expect(lastResultTime).toBe(oldestTimestamp);
 
           return true;
@@ -986,8 +986,8 @@ describe('Property 5: State Query Response Correctness', () => {
 
           // Verify recentResults ordering
           for (let i = 0; i < state.recentResults.length - 1; i++) {
-            const currentTime = new Date(state.recentResults[i].timestamp).getTime();
-            const nextTime = new Date(state.recentResults[i + 1].timestamp).getTime();
+            const currentTime = new Date(state.recentResults[i]!.timestamp).getTime();
+            const nextTime = new Date(state.recentResults[i + 1]!.timestamp).getTime();
             expect(currentTime).toBeGreaterThanOrEqual(nextTime);
           }
 
@@ -1249,7 +1249,7 @@ describe('Property 6: State Persistence Round-Trip', () => {
 
           // Same order (by commit)
           for (let i = 0; i < originalResults.length; i++) {
-            expect(restoredResults[i].commit).toBe(originalResults[i].commit);
+            expect(restoredResults[i]!.commit).toBe(originalResults[i]!.commit);
           }
 
           return true;
@@ -1286,7 +1286,7 @@ describe('Property 6: State Persistence Round-Trip', () => {
             const words = normalizedDescription.split(/\s+/).filter(w => w.length > 0);
 
             if (words.length > 0) {
-              const searchResults = await restoredRegistry.searchSimilar(words[0], 100);
+              const searchResults = await restoredRegistry.searchSimilar(words[0]!, 100);
               const found = searchResults.some(r => r.commit === result.commit);
               expect(found).toBe(true);
             }
@@ -1311,14 +1311,14 @@ describe('Property 6: State Persistence Round-Trip', () => {
 
             // Pick a search term from one of the results
             const targetResult = results[searchIndex % results.length];
-            const normalizedDescription = targetResult.description.replace(/[\t\n\r]/g, ' ');
+            const normalizedDescription = targetResult!.description.replace(/[\t\n\r]/g, ' ');
             const words = normalizedDescription.split(/\s+/).filter(w => w.length > 0);
 
             if (words.length === 0) {
               return true; // Skip if no searchable words
             }
 
-            const searchTerm = words[0];
+            const searchTerm = words[0]!;
             const originalSearchResults = await registry.searchSimilar(searchTerm, 100);
 
             await registry.persist();
@@ -1462,7 +1462,7 @@ describe('Property 6: State Persistence Round-Trip', () => {
 
           // Set up some parent relationships
           for (let i = 1; i < results.length; i++) {
-            registry.setParent(results[i].commit, results[i - 1].commit);
+            registry.setParent(results[i]!.commit, results[i - 1]!.commit);
           }
 
           await registry.persist();
@@ -1475,13 +1475,13 @@ describe('Property 6: State Persistence Round-Trip', () => {
 
           // Verify lineage is preserved
           for (let i = 1; i < results.length; i++) {
-            const lineage = await restoredRegistry.getLineage(results[i].commit);
+            const lineage = await restoredRegistry.getLineage(results[i]!.commit);
             expect(lineage).toBeDefined();
-            expect(lineage!.parent).toBe(results[i - 1].commit);
+            expect(lineage!.parent).toBe(results[i - 1]!.commit);
           }
 
           // Verify first experiment has no parent
-          const firstLineage = await restoredRegistry.getLineage(results[0].commit);
+          const firstLineage = await restoredRegistry.getLineage(results[0]!.commit);
           expect(firstLineage).toBeDefined();
           expect(firstLineage!.parent).toBeNull();
 
@@ -1707,7 +1707,7 @@ describe('Property 7: Join State Completeness', () => {
 
           // Results should be in the same order as they were inserted
           for (let i = 0; i < results.length; i++) {
-            expect(allResults[i].commit).toBe(results[i].commit);
+            expect(allResults[i]!.commit).toBe(results[i]!.commit);
           }
 
           return true;
@@ -1853,7 +1853,7 @@ describe('Property 7: Join State Completeness', () => {
             const words = normalizedDescription.split(/\s+/).filter(w => w.length > 0);
 
             if (words.length > 0) {
-              const searchResults = await newAgentRegistry.searchSimilar(words[0], 100);
+              const searchResults = await newAgentRegistry.searchSimilar(words[0]!, 100);
               const found = searchResults.some(r => r.commit === result.commit);
               expect(found).toBe(true);
             }
@@ -1875,7 +1875,7 @@ describe('Property 7: Join State Completeness', () => {
 
           // Set up parent relationships
           for (let i = 1; i < results.length; i++) {
-            registry.setParent(results[i].commit, results[i - 1].commit);
+            registry.setParent(results[i]!.commit, results[i - 1]!.commit);
           }
 
           await registry.persist();
@@ -1889,9 +1889,9 @@ describe('Property 7: Join State Completeness', () => {
 
           // New agent should be able to access lineage
           for (let i = 1; i < results.length; i++) {
-            const lineage = await newAgentRegistry.getLineage(results[i].commit);
+            const lineage = await newAgentRegistry.getLineage(results[i]!.commit);
             expect(lineage).toBeDefined();
-            expect(lineage!.parent).toBe(results[i - 1].commit);
+            expect(lineage!.parent).toBe(results[i - 1]!.commit);
           }
 
           return true;
@@ -2030,18 +2030,18 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
           // Set parent relationships: each experiment (except first) has the previous as parent
           for (let i = 1; i < results.length; i++) {
-            registry.setParent(results[i].commit, results[i - 1].commit);
+            registry.setParent(results[i]!.commit, results[i - 1]!.commit);
           }
 
           // Verify each experiment's lineage returns the correct parent
           for (let i = 1; i < results.length; i++) {
-            const lineage = await registry.getLineage(results[i].commit);
+            const lineage = await registry.getLineage(results[i]!.commit);
             expect(lineage).toBeDefined();
-            expect(lineage!.parent).toBe(results[i - 1].commit);
+            expect(lineage!.parent).toBe(results[i - 1]!.commit);
           }
 
           // First experiment should have no parent
-          const firstLineage = await registry.getLineage(results[0].commit);
+          const firstLineage = await registry.getLineage(results[0]!.commit);
           expect(firstLineage).toBeDefined();
           expect(firstLineage!.parent).toBeNull();
 
@@ -2060,14 +2060,14 @@ describe('Property 17: Experiment Lineage Tracking', () => {
           }
 
           // Set initial parent
-          registry.setParent(results[2].commit, results[0].commit);
-          let lineage = await registry.getLineage(results[2].commit);
-          expect(lineage!.parent).toBe(results[0].commit);
+          registry.setParent(results[2]!.commit, results[0]!.commit);
+          let lineage = await registry.getLineage(results[2]!.commit);
+          expect(lineage!.parent).toBe(results[0]!.commit);
 
           // Update parent to a different commit
-          registry.setParent(results[2].commit, results[1].commit);
-          lineage = await registry.getLineage(results[2].commit);
-          expect(lineage!.parent).toBe(results[1].commit);
+          registry.setParent(results[2]!.commit, results[1]!.commit);
+          lineage = await registry.getLineage(results[2]!.commit);
+          expect(lineage!.parent).toBe(results[1]!.commit);
 
           return true;
         }),
@@ -2090,14 +2090,14 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
           // Set parent relationships
           for (let i = 1; i < results.length; i++) {
-            registry.setParent(results[i].commit, results[i - 1].commit);
+            registry.setParent(results[i]!.commit, results[i - 1]!.commit);
           }
 
           // Verify each parent has the correct child in its children array
           for (let i = 0; i < results.length - 1; i++) {
-            const parentLineage = await registry.getLineage(results[i].commit);
+            const parentLineage = await registry.getLineage(results[i]!.commit);
             expect(parentLineage).toBeDefined();
-            expect(parentLineage!.children).toContain(results[i + 1].commit);
+            expect(parentLineage!.children).toContain(results[i + 1]!.commit);
           }
 
           return true;
@@ -2115,7 +2115,7 @@ describe('Property 17: Experiment Lineage Tracking', () => {
           }
 
           // Set first experiment as parent of all others
-          const parentCommit = results[0].commit;
+          const parentCommit = results[0]!.commit;
           const childCommits = results.slice(1).map(r => r.commit);
 
           for (const childCommit of childCommits) {
@@ -2146,11 +2146,11 @@ describe('Property 17: Experiment Lineage Tracking', () => {
           }
 
           // Set parent multiple times for the same child
-          registry.setParent(results[1].commit, results[0].commit);
-          registry.setParent(results[1].commit, results[0].commit);
-          registry.setParent(results[1].commit, results[0].commit);
+          registry.setParent(results[1]!.commit, results[0]!.commit);
+          registry.setParent(results[1]!.commit, results[0]!.commit);
+          registry.setParent(results[1]!.commit, results[0]!.commit);
 
-          const parentLineage = await registry.getLineage(results[0].commit);
+          const parentLineage = await registry.getLineage(results[0]!.commit);
           expect(parentLineage).toBeDefined();
 
           // Children array should have no duplicates
@@ -2178,7 +2178,7 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
           // Set up parent relationships
           for (let i = 1; i < results.length; i++) {
-            registry.setParent(results[i].commit, results[i - 1].commit);
+            registry.setParent(results[i]!.commit, results[i - 1]!.commit);
           }
 
           await registry.persist();
@@ -2191,13 +2191,13 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
           // Verify parent relationships are preserved
           for (let i = 1; i < results.length; i++) {
-            const lineage = await restoredRegistry.getLineage(results[i].commit);
+            const lineage = await restoredRegistry.getLineage(results[i]!.commit);
             expect(lineage).toBeDefined();
-            expect(lineage!.parent).toBe(results[i - 1].commit);
+            expect(lineage!.parent).toBe(results[i - 1]!.commit);
           }
 
           // Verify first experiment has no parent
-          const firstLineage = await restoredRegistry.getLineage(results[0].commit);
+          const firstLineage = await restoredRegistry.getLineage(results[0]!.commit);
           expect(firstLineage).toBeDefined();
           expect(firstLineage!.parent).toBeNull();
 
@@ -2216,7 +2216,7 @@ describe('Property 17: Experiment Lineage Tracking', () => {
           }
 
           // Set first experiment as parent of all others
-          const parentCommit = results[0].commit;
+          const parentCommit = results[0]!.commit;
           const childCommits = results.slice(1).map(r => r.commit);
 
           for (const childCommit of childCommits) {
@@ -2259,7 +2259,7 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
             // Set up parent relationships
             for (let i = 1; i < results.length; i++) {
-              registry.setParent(results[i].commit, results[i - 1].commit);
+              registry.setParent(results[i]!.commit, results[i - 1]!.commit);
             }
 
             let currentRegistry = registry;
@@ -2277,9 +2277,9 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
             // Verify lineage is still correct after all cycles
             for (let i = 1; i < results.length; i++) {
-              const lineage = await currentRegistry.getLineage(results[i].commit);
+              const lineage = await currentRegistry.getLineage(results[i]!.commit);
               expect(lineage).toBeDefined();
-              expect(lineage!.parent).toBe(results[i - 1].commit);
+              expect(lineage!.parent).toBe(results[i - 1]!.commit);
             }
 
             return true;
@@ -2304,26 +2304,26 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
           // Create a chain: results[0] -> results[1] -> results[2] -> ... -> results[n-1]
           for (let i = 1; i < results.length; i++) {
-            registry.setParent(results[i].commit, results[i - 1].commit);
+            registry.setParent(results[i]!.commit, results[i - 1]!.commit);
           }
 
           // Verify each level of the chain
           for (let i = 0; i < results.length; i++) {
-            const lineage = await registry.getLineage(results[i].commit);
+            const lineage = await registry.getLineage(results[i]!.commit);
             expect(lineage).toBeDefined();
 
             // Check parent
             if (i === 0) {
               expect(lineage!.parent).toBeNull();
             } else {
-              expect(lineage!.parent).toBe(results[i - 1].commit);
+              expect(lineage!.parent).toBe(results[i - 1]!.commit);
             }
 
             // Check children
             if (i === results.length - 1) {
               expect(lineage!.children.length).toBe(0);
             } else {
-              expect(lineage!.children).toContain(results[i + 1].commit);
+              expect(lineage!.children).toContain(results[i + 1]!.commit);
             }
           }
 
@@ -2342,9 +2342,9 @@ describe('Property 17: Experiment Lineage Tracking', () => {
           }
 
           // Create chain: grandparent -> parent -> child
-          const grandparent = results[0].commit;
-          const parent = results[1].commit;
-          const child = results[2].commit;
+          const grandparent = results[0]!.commit;
+          const parent = results[1]!.commit;
+          const child = results[2]!.commit;
 
           registry.setParent(parent, grandparent);
           registry.setParent(child, parent);
@@ -2394,7 +2394,7 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
             // Create the chain
             for (let i = 1; i < chainLength; i++) {
-              registry.setParent(results[i].commit, results[i - 1].commit);
+              registry.setParent(results[i]!.commit, results[i - 1]!.commit);
             }
 
             await registry.persist();
@@ -2407,17 +2407,17 @@ describe('Property 17: Experiment Lineage Tracking', () => {
 
             // Verify the entire chain is preserved
             for (let i = 0; i < chainLength; i++) {
-              const lineage = await restoredRegistry.getLineage(results[i].commit);
+              const lineage = await restoredRegistry.getLineage(results[i]!.commit);
               expect(lineage).toBeDefined();
 
               if (i === 0) {
                 expect(lineage!.parent).toBeNull();
               } else {
-                expect(lineage!.parent).toBe(results[i - 1].commit);
+                expect(lineage!.parent).toBe(results[i - 1]!.commit);
               }
 
               if (i < chainLength - 1) {
-                expect(lineage!.children).toContain(results[i + 1].commit);
+                expect(lineage!.children).toContain(results[i + 1]!.commit);
               }
             }
 
@@ -2604,7 +2604,7 @@ describe('Property 37: Description Search Index', () => {
 
             if (words.length > 0) {
               // Search using the first word
-              const searchResults = await registry.searchSimilar(words[0], 100);
+              const searchResults = await registry.searchSimilar(words[0]!, 100);
               const found = searchResults.some(r => r.commit === result.commit);
               expect(found).toBe(true);
             }
@@ -2629,7 +2629,7 @@ describe('Property 37: Description Search Index', () => {
 
             // Pick a random result and a random word from its description
             const targetResult = results[wordIndexSeed % results.length];
-            const normalizedDescription = targetResult.description.replace(/[\t\n\r]/g, ' ');
+            const normalizedDescription = targetResult!.description.replace(/[\t\n\r]/g, ' ');
             const words = normalizedDescription.toLowerCase().split(/\s+/).filter(w => w.length > 0);
 
             if (words.length > 0) {
@@ -2638,7 +2638,7 @@ describe('Property 37: Description Search Index', () => {
               const searchWord = words[wordIndex];
 
               const searchResults = await registry.searchSimilar(searchWord, 100);
-              const found = searchResults.some(r => r.commit === targetResult.commit);
+              const found = searchResults.some(r => r.commit === targetResult!.commit);
               expect(found).toBe(true);
             }
 
@@ -2699,18 +2699,18 @@ describe('Property 37: Description Search Index', () => {
             const words = normalizedDescription.split(/\s+/).filter(w => w.length > 0);
 
             if (words.length > 0) {
-              const originalWord = words[0];
+              const originalWord = words[0]!;
 
               // Search with lowercase
-              const lowerResults = await registry.searchSimilar(originalWord.toLowerCase(), 100);
+              const lowerResults = await registry.searchSimilar(originalWord!.toLowerCase(), 100);
               const foundLower = lowerResults.some(r => r.commit === result.commit);
 
               // Search with uppercase
-              const upperResults = await registry.searchSimilar(originalWord.toUpperCase(), 100);
+              const upperResults = await registry.searchSimilar(originalWord!.toUpperCase(), 100);
               const foundUpper = upperResults.some(r => r.commit === result.commit);
 
               // Search with mixed case
-              const mixedCase = originalWord.split('').map((c, i) =>
+              const mixedCase = originalWord!.split('').map((c, i) =>
                 i % 2 === 0 ? c.toUpperCase() : c.toLowerCase()
               ).join('');
               const mixedResults = await registry.searchSimilar(mixedCase, 100);
@@ -2749,7 +2749,7 @@ describe('Property 37: Description Search Index', () => {
       for (const search of searches) {
         const searchResults = await registry.searchSimilar(search, 100);
         expect(searchResults.length).toBe(1);
-        expect(searchResults[0].commit).toBe(result.commit);
+        expect(searchResults[0]!.commit).toBe(result.commit);
       }
     });
   });
@@ -2804,8 +2804,8 @@ describe('Property 37: Description Search Index', () => {
       const searchResults = await registry.searchSimilar('learning rate', 100);
 
       expect(searchResults.length).toBe(2); // result3 doesn't have 'learning' or 'rate'
-      expect(searchResults[0].commit).toBe(result1.commit); // 2 matches (learning, rate)
-      expect(searchResults[1].commit).toBe(result2.commit); // 1 match (learning)
+      expect(searchResults[0]!.commit).toBe(result1.commit); // 2 matches (learning, rate)
+      expect(searchResults[1]!.commit).toBe(result2.commit); // 1 match (learning)
     });
 
     it('multi-word search should rank by total match count', async () => {
@@ -2840,8 +2840,8 @@ describe('Property 37: Description Search Index', () => {
       const searchResults = await registry.searchSimilar('increase learning', 100);
 
       expect(searchResults.length).toBe(2);
-      expect(searchResults[0].commit).toBe(result1.commit); // 2 matches
-      expect(searchResults[1].commit).toBe(result2.commit); // 1 match
+      expect(searchResults[0]!.commit).toBe(result1.commit); // 2 matches
+      expect(searchResults[1]!.commit).toBe(result2.commit); // 1 match
     });
   });
 
@@ -2863,7 +2863,7 @@ describe('Property 37: Description Search Index', () => {
             const normalizedDescription = result.description.replace(/[\t\n\r]/g, ' ');
             const words = normalizedDescription.toLowerCase().split(/\s+/).filter(w => w.length > 0);
             if (words.length > 0) {
-              const searchResults = await registry.searchSimilar(words[0], 100);
+              const searchResults = await registry.searchSimilar(words[0]!, 100);
               searchResultsBefore.set(result.commit, searchResults.map(r => r.commit));
             }
           }
@@ -2882,7 +2882,7 @@ describe('Property 37: Description Search Index', () => {
             const normalizedDescription = result.description.replace(/[\t\n\r]/g, ' ');
             const words = normalizedDescription.toLowerCase().split(/\s+/).filter(w => w.length > 0);
             if (words.length > 0) {
-              const searchResultsAfter = await restoredRegistry.searchSimilar(words[0], 100);
+              const searchResultsAfter = await restoredRegistry.searchSimilar(words[0]!, 100);
               const commitsAfter = searchResultsAfter.map(r => r.commit);
               const commitsBefore = searchResultsBefore.get(result.commit) ?? [];
 
@@ -2919,7 +2919,7 @@ describe('Property 37: Description Search Index', () => {
             const words = normalizedDescription.toLowerCase().split(/\s+/).filter(w => w.length > 0);
 
             if (words.length > 0) {
-              const searchResults = await restoredRegistry.searchSimilar(words[0], 100);
+              const searchResults = await restoredRegistry.searchSimilar(words[0]!, 100);
               const found = searchResults.some(r => r.commit === result.commit);
               expect(found).toBe(true);
             }
@@ -2961,7 +2961,7 @@ describe('Property 37: Description Search Index', () => {
               const words = normalizedDescription.toLowerCase().split(/\s+/).filter(w => w.length > 0);
 
               if (words.length > 0) {
-                const searchResults = await currentRegistry.searchSimilar(words[0], 100);
+                const searchResults = await currentRegistry.searchSimilar(words[0]!, 100);
                 const found = searchResults.some(r => r.commit === result.commit);
                 expect(found).toBe(true);
               }
@@ -3114,12 +3114,12 @@ describe('Property 37: Description Search Index', () => {
       // Should find by regular words
       let searchResults = await registry.searchSimilar('increase', 100);
       expect(searchResults.length).toBe(1);
-      expect(searchResults[0].commit).toBe(result.commit);
+      expect(searchResults[0]!.commit).toBe(result.commit);
 
       // Should find by 'LR'
       searchResults = await registry.searchSimilar('LR', 100);
       expect(searchResults.length).toBe(1);
-      expect(searchResults[0].commit).toBe(result.commit);
+      expect(searchResults[0]!.commit).toBe(result.commit);
     });
 
     it('search should handle descriptions with numbers', async () => {
@@ -3140,11 +3140,11 @@ describe('Property 37: Description Search Index', () => {
       // Should find by number
       let searchResults = await registry.searchSimilar('128', 100);
       expect(searchResults.length).toBe(1);
-      expect(searchResults[0].commit).toBe(result.commit);
+      expect(searchResults[0]!.commit).toBe(result.commit);
 
       searchResults = await registry.searchSimilar('256', 100);
       expect(searchResults.length).toBe(1);
-      expect(searchResults[0].commit).toBe(result.commit);
+      expect(searchResults[0]!.commit).toBe(result.commit);
     });
   });
 });

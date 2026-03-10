@@ -282,8 +282,8 @@ describe('SessionRouter', () => {
       await router.route(message, sessionId);
 
       expect(messages.length).toBe(1);
-      expect(messages[0].message).toEqual(message);
-      expect(messages[0].targetSessionId).toBe(sessionId);
+      expect(messages[0]!.message).toEqual(message);
+      expect(messages[0]!.targetSessionId).toBe(sessionId);
     });
 
     it('preserves message content unchanged', async () => {
@@ -296,7 +296,7 @@ describe('SessionRouter', () => {
       });
       await router.route(originalMessage, sessionId);
 
-      expect(messages[0].message).toEqual(originalMessage);
+      expect(messages[0]!.message).toEqual(originalMessage);
     });
 
     it('includes source session ID when provided', async () => {
@@ -308,7 +308,7 @@ describe('SessionRouter', () => {
       const message = createNotification('test.method');
       await router.route(message, targetSessionId, sourceSessionId);
 
-      expect(messages[0].sourceSessionId).toBe(sourceSessionId);
+      expect(messages[0]!.sourceSessionId).toBe(sourceSessionId);
     });
 
     it('throws error for non-existent target session', async () => {

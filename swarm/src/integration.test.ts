@@ -683,7 +683,7 @@ describe('Integration: Protocol Message Handling', () => {
 
     for (let i = 0; i < lines.length; i++) {
       const decoded = decode(lines[i] + '\n');
-      expect(decoded).toEqual(messages[i]);
+      expect(decoded).toEqual(messages[i]!);
     }
   });
 });

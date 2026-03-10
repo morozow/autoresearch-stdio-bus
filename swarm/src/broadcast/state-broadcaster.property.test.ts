@@ -256,7 +256,7 @@ describe('Property 8: Broadcast Agent Attribution', () => {
           // Verify each message has the correct agent_id
           expect(receivedMessages.length).toBe(results.length);
           for (let i = 0; i < results.length; i++) {
-            expect(receivedMessages[i].params.agentId).toBe(results[i].agentId);
+            expect(receivedMessages[i]!.params.agentId).toBe(results[i]!.agentId);
           }
 
           return true;

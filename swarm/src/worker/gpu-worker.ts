@@ -99,10 +99,45 @@ export interface GpuChecker {
 }
 
 /**
- * Default GPU checker using nvidia-smi.
+ * Default GPU checker using nvidia-smi for CUDA or Python check for MPS.
  */
 export const defaultGpuChecker: GpuChecker = {
   async checkAvailable(gpuId: number): Promise<boolean> {
+    const deviceBackend = process.env.DEVICE_BACKEND?.toLowerCase() ?? 'cuda';
+
+    if (deviceBackend === 'mps') {
+      // For MPS (Apple Silicon), check if MPS is available via Python
+      // MPS only has one "GPU" (the unified memory), so gpuId 0 is always valid
+      if (gpuId !== 0) {
+        return false;
+      }
+      try {
+        // Try venv python first (relative to workDir), then system python
+        const cwd = process.cwd();
+        const pythonPaths = [
+          `${cwd}/.venv/bin/python3`,
+          `${cwd}/../.venv/bin/python3`,  // If running from swarm subdir
+          '.venv/bin/python3',
+          'python3',
+          'python'
+        ];
+        for (const pythonPath of pythonPaths) {
+          try {
+            const { stdout } = await execAsync(`${pythonPath} -c "import torch; print(torch.backends.mps.is_available())"`);
+            if (stdout.trim().toLowerCase() === 'true') {
+              return true;
+            }
+          } catch {
+            continue;
+          }
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    }
+
+    // CUDA path - use nvidia-smi
     try {
       const { stdout } = await execAsync(`nvidia-smi -i ${gpuId} --query-gpu=name --format=csv,noheader`);
       return stdout.trim().length > 0;
@@ -111,6 +146,22 @@ export const defaultGpuChecker: GpuChecker = {
     }
   },
   async getMemoryCapacity(gpuId: number): Promise<number> {
+    const deviceBackend = process.env.DEVICE_BACKEND?.toLowerCase() ?? 'cuda';
+
+    if (deviceBackend === 'mps') {
+      // For MPS, get system memory as approximation (MPS uses unified memory)
+      // Return a reasonable default for Apple Silicon
+      try {
+        const { stdout } = await execAsync('sysctl -n hw.memsize');
+        const memoryBytes = parseInt(stdout.trim(), 10);
+        // Return half of system memory as available for MPS (conservative estimate)
+        return isNaN(memoryBytes) ? 16384 : Math.floor(memoryBytes / 1024 / 1024 / 2);
+      } catch {
+        return 16384; // Default 16GB for Apple Silicon
+      }
+    }
+
+    // CUDA path - use nvidia-smi
     try {
       const { stdout } = await execAsync(`nvidia-smi -i ${gpuId} --query-gpu=memory.total --format=csv,noheader,nounits`);
       const memoryMb = parseInt(stdout.trim(), 10);
@@ -489,15 +540,23 @@ export class GpuWorker {
    */
   private async executeExperiment(): Promise<{ exitCode: number; timedOut: boolean; output: string }> {
     return new Promise((resolve) => {
-      // Build environment with CUDA_VISIBLE_DEVICES
+      const deviceBackend = process.env.DEVICE_BACKEND?.toLowerCase() ?? 'cuda';
+
+      // Build environment with device-specific settings
       const env: NodeJS.ProcessEnv = {
         ...process.env,
-        CUDA_VISIBLE_DEVICES: String(this.gpuId),
+        DEVICE_BACKEND: deviceBackend,
       };
+
+      // Set CUDA_VISIBLE_DEVICES only for CUDA backend
+      if (deviceBackend === 'cuda') {
+        env.CUDA_VISIBLE_DEVICES = String(this.gpuId);
+      }
 
       this.logger.info('Executing experiment command', {
         command: EXPERIMENT_COMMAND,
         gpuId: this.gpuId,
+        deviceBackend,
         cudaVisibleDevices: env.CUDA_VISIBLE_DEVICES,
         workDir: this.workDir,
       });

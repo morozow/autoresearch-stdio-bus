@@ -8,7 +8,7 @@
     "swarm": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/cli.js",
     "dev": "ts-node src/cli.ts",
     "test": "vitest run",

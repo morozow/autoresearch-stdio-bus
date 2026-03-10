@@ -531,6 +531,12 @@ export class ExperimentRegistry {
 
       // Parse header to get column indices
       const headerLine = lines[0];
+      if (!headerLine) {
+        this.logger.warn('Empty header line, starting with empty state', {
+          resultsPath: this.resultsPath,
+        });
+        return;
+      }
       const headers = headerLine.split('\t');
       const columnIndices = this.parseHeaderIndices(headers);
 
@@ -551,6 +557,7 @@ export class ExperimentRegistry {
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
+        if (!line) continue;
         try {
           const result = this.parseTsvLine(line, columnIndices);
           if (result) {
@@ -654,17 +661,34 @@ export class ExperimentRegistry {
       return null;
     }
 
-    const commit = fields[columnIndices['commit']];
-    const valBpbStr = fields[columnIndices['val_bpb']];
-    const memoryGbStr = fields[columnIndices['memory_gb']];
-    const status = fields[columnIndices['status']];
-    const description = this.unescapeTsvField(fields[columnIndices['description']]);
-    const agentId = fields[columnIndices['agent_id']];
-    const timestamp = fields[columnIndices['timestamp']];
-    const branch = fields[columnIndices['branch']];
+    const commitIdx = columnIndices['commit'];
+    const valBpbIdx = columnIndices['val_bpb'];
+    const memoryGbIdx = columnIndices['memory_gb'];
+    const statusIdx = columnIndices['status'];
+    const descriptionIdx = columnIndices['description'];
+    const agentIdIdx = columnIndices['agent_id'];
+    const timestampIdx = columnIndices['timestamp'];
+    const branchIdx = columnIndices['branch'];
+
+    // Validate all required indices exist
+    if (commitIdx === undefined || valBpbIdx === undefined ||
+      memoryGbIdx === undefined || statusIdx === undefined ||
+      descriptionIdx === undefined || agentIdIdx === undefined ||
+      timestampIdx === undefined || branchIdx === undefined) {
+      return null;
+    }
+
+    const commit = fields[commitIdx];
+    const valBpbStr = fields[valBpbIdx];
+    const memoryGbStr = fields[memoryGbIdx];
+    const status = fields[statusIdx];
+    const description = this.unescapeTsvField(fields[descriptionIdx] ?? '');
+    const agentId = fields[agentIdIdx];
+    const timestamp = fields[timestampIdx];
+    const branch = fields[branchIdx];
 
     // Validate required fields
-    if (!commit || !agentId || !timestamp || !branch) {
+    if (!commit || !valBpbStr || !memoryGbStr || !status || !agentId || !timestamp || !branch) {
       return null;
     }
 

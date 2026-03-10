@@ -137,3 +137,24 @@ node dist/cli.js --config my-config.json
 ```
 
 See `swarm/RUNBOOK.md` for detailed instructions.
+
+---
+
+## Device Backend Support
+
+The training script supports both NVIDIA CUDA and Apple Silicon (MPS):
+
+```bash
+# NVIDIA GPU (default)
+uv run train.py
+
+# Apple Silicon (M1/M2/M3)
+DEVICE_BACKEND=mps uv run train.py
+```
+
+| Backend | Device | Flash Attention | Autocast dtype |
+|---------|--------|-----------------|----------------|
+| `cuda` | NVIDIA GPU | FA3 | bfloat16 |
+| `mps` | Apple Silicon | SDPA fallback | float16 |
+
+Note: Results between backends may differ slightly due to different attention implementations and precision.

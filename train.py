@@ -539,15 +539,8 @@ smooth_train_loss = 0
 total_training_time = 0
 step = 0
 
-# Device-agnostic synchronization
-def sync_device():
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-    elif device.type == "mps":
-        torch.mps.synchronize()
-
 while True:
-    sync_device()
+    torch.cuda.synchronize()
     t0 = time.time()
     for micro_step in range(grad_accum_steps):
         with autocast_ctx:
@@ -577,7 +570,7 @@ while True:
         print("FAIL")
         exit(1)
 
-    sync_device()
+    torch.cuda.synchronize()
     t1 = time.time()
     dt = t1 - t0
 

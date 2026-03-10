@@ -2,17 +2,11 @@
 Autoresearch pretraining script. Single-GPU, single-file.
 Cherry-picked and simplified from nanochat.
 Usage: uv run train.py
-Environment: DEVICE_BACKEND=cuda (default) or DEVICE_BACKEND=mps (Apple Silicon)
 """
 
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-
-# Device backend selection: cuda (default) or mps (Apple Silicon)
-DEVICE_BACKEND = os.environ.get("DEVICE_BACKEND", "cuda").lower()
-if DEVICE_BACKEND not in ("cuda", "mps"):
-    raise ValueError(f"DEVICE_BACKEND must be 'cuda' or 'mps', got '{DEVICE_BACKEND}'")
 
 import gc
 import time
@@ -21,18 +15,12 @@ from dataclasses import dataclass, asdict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-    except Exception as e:
-        print(f"[train] Warning: Flash‑Attention kernels not available ({e}); using PyTorch SDPA.")
-        fa3 = None
-        cap = None
-else:
-    # MPS backend – Flash Attention not available, will use PyTorch native attention
-    fa3 = None
-    cap = None
-else:
-    # MPS backend - Flash Attention not available, will use PyTorch native attention
-    fa3 = None
-    cap = None
+
+from kernels import get_kernel
+cap = torch.cuda.get_device_capability()
+# varunneal's FA3 is Hopper only, use kernels-community on non-Hopper GPUs
+repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
+fa3 = get_kernel(repo).flash_attn_interface
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
 
@@ -101,17 +89,7 @@ class CausalSelfAttention(nn.Module):
         q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         q, k = norm(q), norm(k)
 
-        # Attention: Flash Attention 3 on CUDA, scaled_dot_product_attention on MPS
-        if fa3 is not None:
-            y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
-        else:
-            # MPS fallback using PyTorch native SDPA
-            # Reshape for SDPA: (B, T, H, D) -> (B, H, T, D)
-            q = q.transpose(1, 2)
-            k = k.transpose(1, 2)
-            v = v.transpose(1, 2)
-            y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-            y = y.transpose(1, 2)  # Back to (B, T, H, D)
+        y = fa3.flash_attn_func(q, k, v, causal=True, window_size=window_size)
         y = y.contiguous().view(B, T, -1)
         y = self.c_proj(y)
         return y
@@ -323,7 +301,7 @@ polar_express_coeffs = [
     (2.3465413258596377, -1.7097828382687081, 0.42323551169305323),
 ]
 
-# @torch.compile(dynamic=False, fullgraph=True)  # disabled for MPS
+@torch.compile(dynamic=False, fullgraph=True)
 def adamw_step_fused(p, grad, exp_avg, exp_avg_sq, step_t, lr_t, beta1_t, beta2_t, eps_t, wd_t):
     p.mul_(1 - lr_t * wd_t)
     exp_avg.lerp_(grad, 1 - beta1_t)
@@ -334,7 +312,7 @@ def adamw_step_fused(p, grad, exp_avg, exp_avg_sq, step_t, lr_t, beta1_t, beta2_
     step_size = lr_t / bias1
     p.add_(exp_avg / denom, alpha=-step_size)
 
-# @torch.compile(dynamic=False, fullgraph=True)  # disabled for MPS
+@torch.compile(dynamic=False, fullgraph=True)
 def muon_step_fused(stacked_grads, stacked_params, momentum_buffer, second_momentum_buffer,
                     momentum_t, lr_t, wd_t, beta2_t, ns_steps, red_dim):
     # Nesterov momentum
@@ -469,7 +447,7 @@ FINAL_LR_FRAC = 0.0     # final LR as fraction of initial
 
 # Model size
 DEPTH = 8               # number of transformer layers
-DEVICE_BATCH_SIZE = int(os.environ.get("DEVICE_BATCH_SIZE", "128"))  # per-device batch size (reduce if OOM)
+DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 
 # ---------------------------------------------------------------------------
 # Setup: tokenizer, model, optimizer, dataloader
@@ -477,16 +455,10 @@ DEVICE_BATCH_SIZE = int(os.environ.get("DEVICE_BATCH_SIZE", "128"))  # per-devic
 
 t_start = time.time()
 torch.manual_seed(42)
-if DEVICE_BACKEND == "cuda":
-    torch.cuda.manual_seed(42)
-    device = torch.device("cuda")
-    autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
-else:
-    torch.mps.manual_seed(42)
-    device = torch.device("mps")
-    # MPS supports float16 autocast, bfloat16 has limited support
-    autocast_ctx = torch.amp.autocast(device_type="mps", dtype=torch.float16)
+torch.cuda.manual_seed(42)
 torch.set_float32_matmul_precision("high")
+device = torch.device("cuda")
+autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
 H100_BF16_PEAK_FLOPS = 989.5e12
 
 tokenizer = Tokenizer.from_directory()
@@ -532,7 +504,7 @@ optimizer = model.setup_optimizer(
     weight_decay=WEIGHT_DECAY,
 )
 
-# model = torch.compile(model, dynamic=False)  # disabled for MPS
+model = torch.compile(model, dynamic=False)
 
 train_loader = make_dataloader(tokenizer, DEVICE_BATCH_SIZE, MAX_SEQ_LEN, "train")
 x, y, epoch = next(train_loader)  # prefetch first batch
@@ -567,15 +539,8 @@ smooth_train_loss = 0
 total_training_time = 0
 step = 0
 
-# Device synchronization helper
-def device_synchronize():
-    if DEVICE_BACKEND == "cuda":
-        torch.cuda.synchronize()
-    else:
-        torch.mps.synchronize()
-
 while True:
-    device_synchronize()
+    torch.cuda.synchronize()
     t0 = time.time()
     for micro_step in range(grad_accum_steps):
         with autocast_ctx:
@@ -605,7 +570,7 @@ while True:
         print("FAIL")
         exit(1)
 
-    device_synchronize()
+    torch.cuda.synchronize()
     t1 = time.time()
     dt = t1 - t0
 
@@ -650,12 +615,7 @@ with autocast_ctx:
 t_end = time.time()
 startup_time = t_start_training - t_start
 steady_state_mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE * (step - 10) / total_training_time / H100_BF16_PEAK_FLOPS if total_training_time > 0 else 0
-# Memory tracking
-if DEVICE_BACKEND == "cuda":
-    peak_vram_mb = torch.cuda.max_memory_allocated() / 1024 / 1024
-else:
-    # MPS doesn't have direct memory tracking API
-    peak_vram_mb = 0.0  # Not available on MPS
+peak_vram_mb = torch.cuda.max_memory_allocated() / 1024 / 1024
 
 print("---")
 print(f"val_bpb:          {val_bpb:.6f}")

@@ -1,0 +1,15 @@
+[2026-03-10T23:09:52.667Z] [INFO] Starting swarm coordinator {"gpuIds":[0],"poolCount":1}
+[2026-03-10T23:09:52.669Z] [INFO] Spawning worker {"agentId":"agent-0","gpuId":0}
+[2026-03-10T23:09:52.678Z] [ERROR] Failed to spawn worker {"agentId":"agent-0","gpuId":0,"error":"GPU 0 is not available"}
+[2026-03-10T23:09:52.742Z] [INFO] Starting swarm coordinator {"gpuIds":[0],"poolCount":1}
+[2026-03-10T23:09:52.744Z] [INFO] Spawning worker {"agentId":"agent-0","gpuId":0}
+[2026-03-10T23:09:52.750Z] [ERROR] Failed to spawn worker {"agentId":"agent-0","gpuId":0,"error":"GPU 0 is not available"}
+[2026-03-10T23:09:52.812Z] [INFO] Starting swarm coordinator {"gpuIds":[0],"poolCount":1}
+[2026-03-10T23:09:52.814Z] [INFO] Spawning worker {"agentId":"agent-0","gpuId":0}
+[2026-03-10T23:09:52.820Z] [ERROR] Failed to spawn worker {"agentId":"agent-0","gpuId":0,"error":"GPU 0 is not available"}
+[2026-03-10T23:09:52.881Z] [INFO] Starting swarm coordinator {"gpuIds":[0],"poolCount":1}
+[2026-03-10T23:09:52.883Z] [INFO] Spawning worker {"agentId":"agent-0","gpuId":0}
+[2026-03-10T23:09:52.890Z] [ERROR] Failed to spawn worker {"agentId":"agent-0","gpuId":0,"error":"GPU 0 is not available"}
+[2026-03-10T23:09:52.950Z] [INFO] Starting swarm coordinator {"gpuIds":[0],"poolCount":1}
+[2026-03-10T23:09:52.953Z] [INFO] Spawning worker {"agentId":"agent-0","gpuId":0}
+[2026-03-10T23:09:52.960Z] [ERROR] Failed to spawn worker {"agentId":"agent-0","gpuId":0,"error":"GPU 0 is not available"}

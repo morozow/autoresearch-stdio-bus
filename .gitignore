@@ -6,6 +6,11 @@ dist/
 wheels/
 *.egg-info
 
+node_modules
+*.d.ts
+*.d.ts.map
+*.js.map
+
 # Virtual environments
 .venv
 worktrees/

@@ -1,0 +1,57 @@
+--- a/train.py
++++ b/train.py
+@@
+-DEVICE_BACKEND = os.environ.get("DEVICE_BACKEND", "cuda").lower()
+-if DEVICE_BACKEND not in ("cuda", "mps"):
+-    raise ValueError(f"DEVICE_BACKEND must be 'cuda' or 'mps', got '{DEVICE_BACKEND}'")
+-
+-import gc
+-import time
+-from dataclasses import dataclass, asdict
+-
+-import torch
+-import torch.nn as nn
+-import torch.nn.functional as F
+-
+-# Device-specific setup
+-if DEVICE_BACKEND == "cuda":
+-    from kernels import get_kernel
+-    cap = torch.cuda.get_device_capability()
+-    # varunneal's FA3 is Hopper only, use kernels-community on non-Hopper GPUs
+-    repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
+-    fa3 = get_kernel(repo).flash_attn_interface
+-else:
+-    # MPS backend - Flash Attention not available, will use PyTorch native attention
+-    fa3 = None
+-    cap = None
+-
+-from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
++# -----------------------------------------------------------------------
++# Device backend selection: cuda (default) or mps (Apple Silicon)
++# -----------------------------------------------------------------------
++DEVICE_BACKEND = os.environ.get("DEVICE_BACKEND", "cuda").lower()
++if DEVICE_BACKEND not in ("cuda", "mps"):
++    raise ValueError(f"DEVICE_BACKEND must be 'cuda' or 'mps', got '{DEVICE_BACKEND}'")
++
++import gc
++import time
++from dataclasses import dataclass, asdict
++
++import torch
++import torch.nn as nn
++import torch.nn.functional as F
++
++# Device‑specific setup ---------------------------------------------------
++if DEVICE_BACKEND == "cuda":
++    # Flash‑Attention kernel is only available on CUDA GPUs.
++    from kernels import get_kernel
++    # Query CUDA capability only when a CUDA device is actually present.
++    cap = torch.cuda.get_device_capability()
++    # varunneal's FA3 is Hopper‑only; fall back to community repo on other GPUs.
++    repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
++    fa3 = get_kernel(repo).flash_attn_interface
++else:  # MPS (Apple Silicon) – no CUDA, no Flash‑Attention
++    fa3 = None
++    cap = None
++
++from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb

@@ -21,14 +21,24 @@ from dataclasses import dataclass, asdict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-# Device-specific setup
+# ---------------------------------------------------------------------------
+# Backend and Flash‑Attention handling
+# ---------------------------------------------------------------------------
 if DEVICE_BACKEND == "cuda":
-    from kernels import get_kernel
-    cap = torch.cuda.get_device_capability()
-    # varunneal's FA3 is Hopper only, use kernels-community on non-Hopper GPUs
-    repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
-    fa3 = get_kernel(repo).flash_attn_interface
+    try:
+        # Optional third‑party flash‑attention kernels; fallback to PyTorch SDPA.
+        from kernels import get_kernel
+        cap = torch.cuda.get_device_capability()
+        repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
+        fa3 = get_kernel(repo).flash_attn_interface
+    except Exception as e:
+        print(f"[train] Warning: Flash‑Attention kernels not available ({e}); using PyTorch SDPA.")
+        fa3 = None
+        cap = None
+else:
+    # MPS backend – Flash Attention not available, will use PyTorch native attention
+    fa3 = None
+    cap = None
 else:
     # MPS backend - Flash Attention not available, will use PyTorch native attention
     fa3 = None

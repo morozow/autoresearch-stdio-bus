@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "MPS (Apple Silicon) swarm configuration for autoresearch. Uses single GPU (unified memory).",
+  "pools": [
+    {
+      "id": "gpu-worker",
+      "command": "node",
+      "args": [
+        "./dist/worker/gpu-worker.js"
+      ],
+      "env": {
+        "DEVICE_BACKEND": "mps"
+      },
+      "instances": 1
+    }
+  ],
+  "swarm": {
+    "gpuIds": [
+      0
+    ],
+    "agentModel": "claude-acp",
+    "apiKeys": "${ANTHROPIC_API_KEY}",
+    "experimentTimeout": 10,
+    "lockTimeout": 10
+  },
+  "limits": {
+    "max_input_buffer": 4194304,
+    "max_output_queue": 16777216,
+    "max_restarts": 10,
+    "restart_window_sec": 120,
+    "backpressure_timeout_sec": 120
+  }
+}

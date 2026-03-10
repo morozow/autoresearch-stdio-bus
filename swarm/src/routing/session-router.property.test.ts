@@ -440,8 +440,8 @@ describe('Property 2: Message Routing Correctness', () => {
       await fc.assert(
         fc.asyncProperty(arbitraryUniqueAgentIds(2, 2), arbitraryJsonRpcMessage(), async (agentIds, message) => {
           const router = new SessionRouter({ logger: silentLogger });
-          const sourceSessionId = router.assignSession(agentIds[0]);
-          const targetSessionId = router.assignSession(agentIds[1]);
+          const sourceSessionId = router.assignSession(agentIds[0]!);
+          const targetSessionId = router.assignSession(agentIds[1]!);
           const { handler, deliveredMessages } = createCapturingHandler();
           router.registerHandler(targetSessionId, handler);
           await router.route(message, targetSessionId, sourceSessionId);
@@ -469,11 +469,11 @@ describe('Property 2: Message Routing Correctness', () => {
       await fc.assert(
         fc.asyncProperty(arbitraryUniqueAgentIds(2, 2), arbitraryJsonRpcMessage(), async (agentIds, message) => {
           const router = new SessionRouter({ logger: silentLogger });
-          const sourceSessionId = router.assignSession(agentIds[0]);
-          const targetSessionId = router.assignSession(agentIds[1]);
+          const sourceSessionId = router.assignSession(agentIds[0]!);
+          const targetSessionId = router.assignSession(agentIds[1]!);
           const { handler, deliveredMessages } = createCapturingHandler();
           router.registerHandler(targetSessionId, handler);
-          await router.routeToAgent(message, agentIds[1], sourceSessionId);
+          await router.routeToAgent(message, agentIds[1]!, sourceSessionId);
           return deliveredMessages[0].sourceSessionId === sourceSessionId;
         }),
         { numRuns: 100 }

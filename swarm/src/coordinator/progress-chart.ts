@@ -207,7 +207,7 @@ export class ProgressChartGenerator {
       if (!dataByAgent[point.agentId]) {
         dataByAgent[point.agentId] = [];
       }
-      dataByAgent[point.agentId].push(point);
+      dataByAgent[point.agentId]!.push(point);
     }
 
     const agents = Array.from(agentSet).sort();

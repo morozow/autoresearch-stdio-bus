@@ -239,7 +239,7 @@ describe('Property 11: Lock Acquisition Requirement', () => {
             }
 
             // Only the first agent should have a granted lock
-            const firstAgent = agentIds[0];
+            const firstAgent = agentIds[0]!;
             const firstLock = lockResults.get(firstAgent)!;
 
             // First agent should be able to modify
@@ -251,7 +251,7 @@ describe('Property 11: Lock Acquisition Requirement', () => {
 
             // All other agents should NOT be able to modify
             for (let i = 1; i < agentIds.length; i++) {
-              const agentId = agentIds[i];
+              const agentId = agentIds[i]!;
               const canModify = tracker.canModify(agentId);
               if (canModify.allowed) {
                 testResolver.clear();
@@ -347,7 +347,7 @@ describe('Property 11: Lock Acquisition Requirement', () => {
           }
 
           // First agent holds lock
-          const firstAgent = agentIds[0];
+          const firstAgent = agentIds[0]!;
           const canFirstModify = tracker.canModify(firstAgent);
           if (!canFirstModify.allowed) {
             testResolver.clear();
@@ -366,7 +366,7 @@ describe('Property 11: Lock Acquisition Requirement', () => {
 
           // If there was a second agent, they should now hold the lock
           if (agentIds.length > 1) {
-            const secondAgent = agentIds[1];
+            const secondAgent = agentIds[1]!;
             // Update tracker state after queue processing
             tracker.updateLockState(secondAgent);
             const canSecondModify = tracker.canModify(secondAgent);
@@ -943,7 +943,7 @@ describe('Property 12: Lock Queuing Behavior', () => {
             const grantOrder: string[] = [];
 
             // First agent acquires lock
-            const firstAgent = agentIds[0];
+            const firstAgent = agentIds[0]!;
             const firstResult = await testResolver.acquireLock(firstAgent);
             if (firstResult.granted) {
               grantOrder.push(firstAgent);
@@ -951,7 +951,7 @@ describe('Property 12: Lock Queuing Behavior', () => {
 
             // Queue remaining agents
             for (let i = 1; i < agentIds.length; i++) {
-              await testResolver.acquireLock(agentIds[i]);
+              await testResolver.acquireLock(agentIds[i]!);
             }
 
             // Process entire queue
@@ -967,7 +967,7 @@ describe('Property 12: Lock Queuing Behavior', () => {
 
             // Verify grant order matches request order
             for (let i = 0; i < agentIds.length; i++) {
-              if (grantOrder[i] !== agentIds[i]) {
+              if (grantOrder[i] !== agentIds[i]!) {
                 testResolver.clear();
                 return false;
               }
@@ -1412,7 +1412,7 @@ describe('Property 13: Lock Timeout Enforcement', () => {
 
             // Verify FIFO order was maintained
             for (let i = 0; i < agentIds.length; i++) {
-              if (grantOrder[i] !== agentIds[i]) {
+              if (grantOrder[i] !== agentIds[i]!) {
                 testResolver.clear();
                 return false;
               }
@@ -1793,7 +1793,7 @@ describe('Property 14: Branch Naming Convention', () => {
             testResolver.clear();
 
             // All branches should be identical
-            const firstBranch = branches[0];
+            const firstBranch = branches[0]!;
             return branches.every(b => b === firstBranch);
           }
         ),

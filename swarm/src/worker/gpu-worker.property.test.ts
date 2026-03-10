@@ -19,7 +19,8 @@ import {
   CommandExecutor,
   GpuChecker,
 } from './gpu-worker';
-import { ChildProcess, EventEmitter } from 'events';
+import { EventEmitter } from 'events';
+import type { ChildProcess } from 'child_process';
 
 // ============================================================================
 // Test Utilities
@@ -783,7 +784,7 @@ describe('Property 10: Worker Exclusivity', () => {
             await worker.start();
 
             // Start first experiment
-            const firstExperimentPromise = worker.runExperiment(branches[0]);
+            const firstExperimentPromise = worker.runExperiment(branches[0]!);
 
             // Give the first experiment time to start
             await new Promise(resolve => setImmediate(resolve));
@@ -1607,7 +1608,7 @@ describe('Property 30: Experiment Timeout', () => {
 
             // Kill should have been called with SIGTERM first
             expect(killCalls.length).toBeGreaterThan(0);
-            expect(killCalls[0].signal).toBe('SIGTERM');
+            expect(killCalls[0]!.signal).toBe('SIGTERM');
 
             await worker.stop();
 

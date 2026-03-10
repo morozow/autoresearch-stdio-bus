@@ -168,9 +168,9 @@ describe('ExperimentRegistry', () => {
       const results = await registry.getRecentResults(10);
 
       expect(results.length).toBe(3);
-      expect(results[0].commit).toBe('b2c3d4e'); // Most recent
-      expect(results[1].commit).toBe('c3d4e5f');
-      expect(results[2].commit).toBe('a1b2c3d'); // Oldest
+      expect(results[0]!.commit).toBe('b2c3d4e'); // Most recent
+      expect(results[1]!.commit).toBe('c3d4e5f');
+      expect(results[2]!.commit).toBe('a1b2c3d'); // Oldest
     });
 
     it('respects the limit parameter', async () => {
@@ -250,9 +250,9 @@ describe('ExperimentRegistry', () => {
 
       const state = await registry.getState();
 
-      expect(state.recentResults[0].commit).toBe('newest');
-      expect(state.recentResults[1].commit).toBe('middle');
-      expect(state.recentResults[2].commit).toBe('oldest');
+      expect(state.recentResults[0]!.commit).toBe('newest');
+      expect(state.recentResults[1]!.commit).toBe('middle');
+      expect(state.recentResults[2]!.commit).toBe('oldest');
     });
   });
 
@@ -285,7 +285,7 @@ describe('ExperimentRegistry', () => {
 
       // c3d4e5f and a1b2c3d should rank higher (3 matches each)
       expect(results.length).toBe(3);
-      expect(results[0].commit).not.toBe('b2c3d4e'); // Only 1 match
+      expect(results[0]!.commit).not.toBe('b2c3d4e'); // Only 1 match
     });
 
     it('respects the limit parameter', async () => {
@@ -305,7 +305,7 @@ describe('ExperimentRegistry', () => {
 
       const results = await registry.searchSimilar('increase learning rate', 10);
       expect(results.length).toBe(1);
-      expect(results[0].commit).toBe('a1b2c3d');
+      expect(results[0]!.commit).toBe('a1b2c3d');
     });
   });
 
@@ -549,7 +549,7 @@ describe('ExperimentRegistry Persistence', () => {
       // Description should have tabs/newlines replaced with spaces
       expect(lines[1]).toContain('test with tabs and newlines');
       // Should not contain actual tabs in description field
-      const fields = lines[1].split('\t');
+      const fields = lines[1]!.split('\t');
       expect(fields.length).toBe(9); // Exactly 9 columns (including parent)
     });
 
@@ -675,7 +675,7 @@ b2c3d4e\t0.993200\t44.2\tkeep\tdecrease batch size\tagent-1\t2025-01-15T10:05:00
 
       const results = await registry.searchSimilar('learning rate', 10);
       expect(results.length).toBe(1);
-      expect(results[0].commit).toBe('a1b2c3d');
+      expect(results[0]!.commit).toBe('a1b2c3d');
     });
 
     it('skips malformed lines gracefully', async () => {
@@ -845,7 +845,7 @@ c3d4e5f\t0.000000\t0.0\tcrash\tcrash status\tagent-2\t2025-01-15T10:10:00Z\tauto
 
       const results = await newRegistry.searchSimilar('learning rate', 10);
       expect(results.length).toBe(1);
-      expect(results[0].commit).toBe('a1b2c3d');
+      expect(results[0]!.commit).toBe('a1b2c3d');
     });
 
     it('preserves active agents after round-trip', async () => {
@@ -985,11 +985,11 @@ b2c3d4e\t0.993200\t44.2\tkeep\timprovement\tagent-1\t2025-01-15T10:05:00Z\tautor
       expect(lines[0]).toContain('parent');
 
       // First result (no parent) should have empty parent field
-      expect(lines[1].endsWith('\t')).toBe(true);
+      expect(lines[1]!.endsWith('\t')).toBe(true);
 
       // Second result should have parent commit
       expect(lines[2]).toContain('a1b2c3d');
-      const fields = lines[2].split('\t');
+      const fields = lines[2]!.split('\t');
       expect(fields[fields.length - 1]).toBe('a1b2c3d');
     });
   });

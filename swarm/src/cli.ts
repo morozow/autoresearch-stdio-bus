@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 /**
  * CLI Entry Point for stdio_bus Swarm Coordinator
- * 
+ *
  * Usage:
  *   npx ts-node src/cli.ts [config-path]
  *   node dist/cli.js [config-path]
- * 
+ *
  * Arguments:
  *   config-path  Path to swarm configuration JSON file (default: ./swarm-config.json)
- * 
+ *
  * Environment Variables:
  *   SWARM_CONFIG  Alternative way to specify config path
  *   SWARM_LOG     Path to log file (default: ./swarm.log)
- * 
+ *
  * The coordinator reads JSON-RPC messages from stdin and writes responses to stdout.
  * Progress reports and logs are written to stderr and the log file.
- * 
+ *
  * Validates: Requirements 6.1
  */
 
@@ -49,7 +49,7 @@ function parseArgs(args: string[]): CliOptions {
   };
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+    const arg: string | undefined = args[i];
 
     if (arg === '--help' || arg === '-h') {
       options.help = true;
@@ -59,7 +59,7 @@ function parseArgs(args: string[]): CliOptions {
       options.configPath = args[++i] ?? options.configPath;
     } else if (arg === '--log' || arg === '-l') {
       options.logPath = args[++i] ?? options.logPath;
-    } else if (!arg.startsWith('-')) {
+    } else if (arg && !arg.startsWith('-')) {
       // Positional argument - treat as config path
       options.configPath = arg;
     }

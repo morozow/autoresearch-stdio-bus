@@ -9,7 +9,15 @@ Self-limiting growth via entropy distribution.
 Neurons speak through LLM when activated.
 
 Usage:
-    uv run python -m qei.brain
+    uv run python -m qei.brain                    # Resume existing or create new
+    uv run python -m qei.brain --id BRAIN-xxx     # Resume specific brain
+    uv run python -m qei.brain --id new           # Force create new brain
+
+Each brain has its own directory:
+    qei/memory/{brain_id}/
+        state.json   - Brain state (neurons, counters)
+        memory.md    - Shared memory (append-only)
+        task.md      - Current focus (human editable)
 
 NOT a stdio_bus worker — runs independently, connects via TCP.
 """
@@ -21,6 +29,7 @@ import socket
 import asyncio
 import threading
 import re
+import argparse
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
@@ -37,23 +46,50 @@ IMPULSE_INTERVAL = 5.0             # Seconds between quantum measurements
 QUANTUM_BATCH_SIZE = 8             # Quantum numbers per impulse (1 trigger + up to 5 control + 2 spare)
 ACTIVATION_THRESHOLD = 128         # 0-255: below = activate, above = maybe create
 CREATION_THRESHOLD = 200           # 0-255: above this AND entropy allows = create new
-STATE_FILE = ".qei-brain-state.json"
-THOUGHTS_FILE = ".qei-thoughts.jsonl"
-MEMORY_DIR = Path("qei/memory")
-WORK_DIR = Path(".")
+MEMORY_BASE = Path("qei/memory")   # Base directory for all brains
 
 # LLM connection (stdio_bus ACP)
 BUS_HOST = os.environ.get("BUS_HOST", "127.0.0.1")
 BUS_PORT = int(os.environ.get("BUS_PORT", "9000"))
 AGENT_ID = os.environ.get("AGENT_ID", "openai")
-LLM_DISABLED = os.environ.get("LLM_DISABLED", "false").lower() == "true"  # disabled only when explicitly set
+LLM_DISABLED = os.environ.get("LLM_DISABLED", "false").lower() == "true"
 
-# Inquiry directions — quantum-selected questions
-# DEPRECATED: Questions are now generated dynamically by neurons
+# Inquiry seeds — used to flavor question generation
 INQUIRY_SEEDS = [
     "границы", "противоречия", "связи", "паттерны",
     "невидимое", "обратное", "источник", "пустота",
 ]
+
+# ---------------------------------------------------------------------------
+# Brain Directory Helpers
+# ---------------------------------------------------------------------------
+
+def get_brain_dir(brain_id: str) -> Path:
+    """Get directory for a specific brain."""
+    return MEMORY_BASE / brain_id
+
+def get_state_path(brain_id: str) -> Path:
+    return get_brain_dir(brain_id) / "state.json"
+
+def get_memory_path(brain_id: str) -> Path:
+    return get_brain_dir(brain_id) / "memory.md"
+
+def get_task_path(brain_id: str) -> Path:
+    return get_brain_dir(brain_id) / "task.md"
+
+def get_thoughts_path(brain_id: str) -> Path:
+    return get_brain_dir(brain_id) / "thoughts.jsonl"
+
+def find_existing_brain() -> Optional[str]:
+    """Find first existing brain in memory directory."""
+    if not MEMORY_BASE.exists():
+        return None
+    for d in MEMORY_BASE.iterdir():
+        if d.is_dir() and d.name.startswith("BRAIN-"):
+            state_file = d / "state.json"
+            if state_file.exists():
+                return d.name
+    return None
 
 # ---------------------------------------------------------------------------
 # Data Types
@@ -126,7 +162,7 @@ def emit(method: str, params: dict):
 
 def save_thought(neuron_id: str, question: str, thought: str):
     """Append thought to JSONL file."""
-    path = WORK_DIR / THOUGHTS_FILE
+    path = get_thoughts_path(state.brain_id)
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
         "brainId": state.brain_id,
@@ -141,15 +177,15 @@ def save_thought(neuron_id: str, question: str, thought: str):
 # Brain Memory (shared markdown file for all neurons)
 # ---------------------------------------------------------------------------
 
-def get_memory_path() -> Path:
-    """Get path to brain's memory file."""
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    return MEMORY_DIR / f"{state.brain_id}.md"
+def init_brain_dir(brain_id: str):
+    """Create brain directory structure."""
+    brain_dir = get_brain_dir(brain_id)
+    brain_dir.mkdir(parents=True, exist_ok=True)
 
 
 def init_memory():
     """Initialize brain memory file if it doesn't exist."""
-    path = get_memory_path()
+    path = get_memory_path(state.brain_id)
     if not path.exists():
         header = f"""# {state.brain_id} Memory
 
@@ -160,9 +196,7 @@ This is the shared memory of brain {state.brain_id}.
 All neurons can read and write here.
 Nothing is ever deleted.
 
----
-
-## Birth
+---## Birth
 
 I was born from quantum vacuum fluctuations.
 My seed is unique in the universe.
@@ -173,9 +207,40 @@ My seed is unique in the universe.
         log(f"Memory initialized: {path}")
 
 
+def init_task():
+    """Initialize task file if it doesn't exist."""
+    path = get_task_path(state.brain_id)
+    if not path.exists():
+        default_task = """# Current Focus
+
+Свободное исследование. Следуй за квантовыми импульсами.
+
+# Direction
+
+- Что интересно?
+- Какие связи не замечены?
+- Что противоречит известному?
+
+# Constraints
+
+Нет ограничений.
+"""
+        with open(path, "w") as f:
+            f.write(default_task)
+        log(f"Task initialized: {path}")
+
+
 def read_memory() -> str:
     """Read entire brain memory."""
-    path = get_memory_path()
+    path = get_memory_path(state.brain_id)
+    if path.exists():
+        return path.read_text()
+    return ""
+
+
+def read_task() -> str:
+    """Read current task/focus."""
+    path = get_task_path(state.brain_id)
     if path.exists():
         return path.read_text()
     return ""
@@ -183,7 +248,7 @@ def read_memory() -> str:
 
 def append_memory(neuron_id: str, content: str):
     """Append to brain memory. Never delete, only append."""
-    path = get_memory_path()
+    path = get_memory_path(state.brain_id)
     timestamp = datetime.utcnow().isoformat()
     
     entry = f"""
@@ -202,8 +267,12 @@ def get_memory_context(max_chars: int = 2000) -> str:
     memory = read_memory()
     if len(memory) <= max_chars:
         return memory
-    # Return last max_chars
     return "...\n" + memory[-max_chars:]
+
+
+def get_task_context() -> str:
+    """Get current task for neuron prompt."""
+    return read_task()
 
 # ---------------------------------------------------------------------------
 # LLM Connection (TCP client to stdio_bus, reusing live_chat.py patterns)
@@ -311,7 +380,7 @@ class LLMClient:
             
             # Create session
             result = self._send_request("session/new", {
-                "cwd": str(WORK_DIR.absolute()),
+                "cwd": str(Path.cwd()),
                 "mcpServers": [],
             })
             
@@ -431,12 +500,13 @@ Do not explain what you are. Just think."""
     
     def inquire(self, neuron_id: str, neuron_seed: str, activation_count: int,
                 context: list) -> Optional[str]:
-        """Generate a question from quantum context and memory."""
+        """Generate a question from quantum context, memory, and task."""
         if not self._connected:
             if not self.connect():
                 return None
         
         memory_context = get_memory_context(1000)
+        task_context = get_task_context()
         
         # Use quantum context to seed the inquiry direction
         seed_idx = context[0] % len(INQUIRY_SEEDS) if context else 0
@@ -447,13 +517,17 @@ Seed: {neuron_seed[:16]}... Activation #{activation_count}
 Quantum entropy: {context}
 Inquiry seed: "{seed_word}"
 
+=== CURRENT TASK ===
+{task_context}
+=== END TASK ===
+
 === RECENT MEMORY ===
 {memory_context}
-=== END ===
+=== END MEMORY ===
 
-From this quantum moment and memory, what question arises?
+From this quantum moment, task focus, and memory, what question arises?
 Generate ONE question (1 sentence). Be curious, unexpected, philosophical.
-The question should emerge from the intersection of quantum randomness and accumulated knowledge.
+The question should emerge from the intersection of quantum randomness, the task, and accumulated knowledge.
 Output ONLY the question, nothing else."""
 
         req_id = self._next_id
@@ -491,15 +565,18 @@ llm_client: Optional[LLMClient] = None
 # ---------------------------------------------------------------------------
 
 def save_state():
-    path = WORK_DIR / STATE_FILE
+    """Save brain state to its directory."""
+    path = get_state_path(state.brain_id)
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w") as f:
         json.dump(asdict(state), f, indent=2)
     tmp.rename(path)
 
-def load_state():
+
+def load_state(brain_id: str) -> bool:
+    """Load brain state from its directory."""
     global state
-    path = WORK_DIR / STATE_FILE
+    path = get_state_path(brain_id)
     if not path.exists():
         return False
     try:
@@ -539,9 +616,14 @@ async def birth_brain() -> str:
         total_creations=0,
     )
     
+    # Create brain directory and files
+    init_brain_dir(brain_id)
     save_state()
     init_memory()
+    init_task()
+    
     log(f"Brain born: {brain_id}")
+    log(f"Directory: {get_brain_dir(brain_id)}")
     
     emit("brain.birth", {
         "brainId": brain_id,
@@ -760,7 +842,7 @@ async def impulse_loop():
     log("Impulse loop stopped")
 
 
-async def main():
+async def main(brain_id: Optional[str] = None):
     """Main entry point."""
     global running, llm_client
     
@@ -768,14 +850,34 @@ async def main():
     log("QUANTUM BRAIN STARTING")
     log("=" * 50)
     
-    # Load or create brain
-    if not load_state():
+    # Determine which brain to run
+    if brain_id == "new":
+        # Force create new brain
         await birth_brain()
+    elif brain_id:
+        # Load specific brain
+        if not load_state(brain_id):
+            log(f"Brain {brain_id} not found, creating new...")
+            await birth_brain()
+    else:
+        # Try to find existing brain or create new
+        existing = find_existing_brain()
+        if existing:
+            load_state(existing)
+        else:
+            await birth_brain()
     
     log(f"Brain: {state.brain_id}")
+    log(f"Directory: {get_brain_dir(state.brain_id)}")
     log(f"Neurons: {len(state.neurons)}/{MAX_NEURONS}")
     log(f"LLM: {'disabled' if LLM_DISABLED else 'enabled'}")
     log(f"Connecting to stdio_bus at {BUS_HOST}:{BUS_PORT}")
+    
+    # Show current task
+    task = read_task()
+    if task:
+        first_line = task.split('\n')[0] if task else ""
+        log(f"Task: {first_line}")
     
     # Start living
     running = True
@@ -794,5 +896,13 @@ async def main():
         log("Brain stopped")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Quantum Brain")
+    parser.add_argument("--id", type=str, default=None,
+                        help="Brain ID to run (use 'new' to create new brain)")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = parse_args()
+    asyncio.run(main(args.id))

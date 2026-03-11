@@ -7,10 +7,13 @@
         "@stdiobus/workers-registry",
         "acp-registry",
         "--custom-agents",
-        "./openai-agents.json"
+        "./stdio_bus/openai-agents.json",
+        "--api-keys",
+        "./stdio_bus/api-keys.json"
       ],
       "env": {},
-      "instances": 1
+      "instances": 1,
+      "cwd": "../"
     },
     {
       "id": "swarm",
@@ -22,19 +25,6 @@
       "env": {
         "DEVICE_BACKEND": "mps"
       },
-      "instances": 1,
-      "cwd": "../"
-    },
-    {
-      "id": "qei",
-      "command": "uv",
-      "args": [
-        "run",
-        "python",
-        "-m",
-        "qei.worker"
-      ],
-      "env": {},
       "instances": 1,
       "cwd": "../"
     }

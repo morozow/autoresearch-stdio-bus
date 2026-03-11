@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
 """
-Quantum Consciousness — живой диалог нейронов через stdio_bus.
+Quantum Consciousness — Multi-neuron dialogue via stdio_bus.
 
-На базе live_chat.py. Без выдуманной хуйни.
-Каждый нейрон = сессия агента. Квантовый импульс = продолжить диалог.
+Based on live_chat.py. Each neuron = agent session. Quantum impulse = dialogue turn.
+Human can participate as N-0 neuron via --say command.
 
 Usage:
+    # Start new dialogue
+    uv run python -m qei.consciousness --new --task "Topic to explore"
+    
+    # Resume existing dialogue
     uv run python -m qei.consciousness
-    uv run python -m qei.consciousness --new
+    uv run python -m qei.consciousness --id DIALOGUE-xxx
+    
+    # Send message as human (N-0 neuron)
+    uv run python -m qei.consciousness --say "Your thought or question"
+    
+    # List all dialogues
+    uv run python -m qei.consciousness --list
 
-Требует запущенный stdio_bus:
+Requires running stdio_bus:
     stdio_bus/stdio_bus --config stdio_bus/stdio-bus-config.json
 """
 
@@ -41,6 +51,18 @@ MEMORY_DIR = Path("qei/memory")
 # Neuron configuration
 MAX_NEURONS = 4  # Maximum neurons in dialogue
 MIN_NEURONS = 2  # Minimum neurons to start dialogue
+
+# Human neuron (N-0) — the gardener
+HUMAN_NEURON_ID = "N-0"
+HUMAN_NEURON = {
+    "id": HUMAN_NEURON_ID,
+    "seed": "HUMAN-OBSERVER",
+    "session_id": None,  # No LLM session — reads from inbox
+    "birth_time": "eternal",
+    "last_response": "",
+    "iteration": 0,
+    "is_human": True,
+}
 
 # ---------------------------------------------------------------------------
 # Decision Evaluation (from task-controller.ts)
@@ -322,6 +344,10 @@ def get_memory_path(dialogue_id: str) -> Path:
 def get_task_path(dialogue_id: str) -> Path:
     return get_dialogue_dir(dialogue_id) / "task.md"
 
+def get_inbox_path(dialogue_id: str) -> Path:
+    """Human neuron inbox — JSONL file with pending messages."""
+    return get_dialogue_dir(dialogue_id) / "inbox.jsonl"
+
 def find_existing_dialogue() -> Optional[str]:
     """Find most recent dialogue in memory directory."""
     if not MEMORY_DIR.exists():
@@ -424,6 +450,66 @@ def read_task() -> str:
         return path.read_text()
     return ""
 
+# ---------------------------------------------------------------------------
+# Human Inbox — async message queue for N-0
+# ---------------------------------------------------------------------------
+
+def read_inbox() -> Optional[str]:
+    """
+    Read and consume one message from human inbox.
+    Returns None if inbox is empty.
+    """
+    if not state.get("dialogue_id"):
+        return None
+    
+    path = get_inbox_path(state["dialogue_id"])
+    if not path.exists():
+        return None
+    
+    # Read all lines
+    lines = path.read_text().strip().split("\n")
+    if not lines or not lines[0]:
+        return None
+    
+    # Parse first message
+    try:
+        msg = json.loads(lines[0])
+        text = msg.get("text", "")
+    except json.JSONDecodeError:
+        text = lines[0]  # Plain text fallback
+    
+    # Remove consumed message, keep rest
+    remaining = lines[1:] if len(lines) > 1 else []
+    if remaining:
+        path.write_text("\n".join(remaining) + "\n")
+    else:
+        path.unlink()  # Delete empty inbox
+    
+    return text if text else None
+
+
+def write_inbox(text: str):
+    """
+    Write message to human inbox.
+    Called via --say command.
+    """
+    if not state.get("dialogue_id"):
+        # Find most recent dialogue
+        existing = find_existing_dialogue()
+        if not existing:
+            log("No active dialogue. Start one first.")
+            return False
+        state["dialogue_id"] = existing
+    
+    path = get_inbox_path(state["dialogue_id"])
+    msg = {"text": text, "timestamp": datetime.utcnow().isoformat()}
+    
+    with open(path, "a") as f:
+        f.write(json.dumps(msg) + "\n")
+    
+    log(f"Message queued for {state['dialogue_id']}")
+    return True
+
 def init_dialogue(dialogue_id: str, initial_task: str = None):
     """Initialize new dialogue directory and files."""
     dialogue_dir = get_dialogue_dir(dialogue_id)
@@ -445,15 +531,15 @@ Started: {datetime.utcnow().isoformat()}
     # Init task file
     task_path = get_task_path(dialogue_id)
     if not task_path.exists():
-        default_task = initial_task or """# Тема диалога
+        default_task = initial_task or """# Dialogue Topic
 
-Свободное исследование. Следуй за мыслью.
+Free exploration. Follow the thought.
 
-# Направление
+# Direction
 
-- Что интересно?
-- Какие связи не замечены?
-- Что противоречит известному?
+- What's interesting?
+- What connections are unnoticed?
+- What contradicts the known?
 """
         with open(task_path, "w") as f:
             f.write(default_task)
@@ -496,19 +582,31 @@ async def create_neuron(client: ACPClient) -> dict:
 async def ensure_neurons(client: ACPClient, q_bytes: bytes) -> List[dict]:
     """
     Ensure we have enough neurons for dialogue.
-    Quantum bytes determine if we should create more.
+    Always includes N-0 (human). Quantum bytes determine if we create more AI neurons.
     """
     neurons = state.get("neurons", [])
     
-    # Always need at least MIN_NEURONS
-    while len(neurons) < MIN_NEURONS:
+    # Always ensure N-0 (human) is first
+    has_human = any(n.get("is_human") for n in neurons)
+    if not has_human:
+        neurons.insert(0, HUMAN_NEURON.copy())
+        state["neurons"] = neurons
+        save_state()
+        log(f"Human neuron N-0 added (the gardener)")
+    
+    # Count AI neurons (excluding human)
+    ai_neurons = [n for n in neurons if not n.get("is_human")]
+    
+    # Always need at least MIN_NEURONS AI neurons
+    while len(ai_neurons) < MIN_NEURONS:
         neuron = await create_neuron(client)
         neurons.append(neuron)
+        ai_neurons.append(neuron)
         state["neurons"] = neurons
         save_state()
     
-    # Quantum decides if we create more (up to MAX_NEURONS)
-    if len(neurons) < MAX_NEURONS and q_bytes:
+    # Quantum decides if we create more (up to MAX_NEURONS AI neurons)
+    if len(ai_neurons) < MAX_NEURONS and q_bytes:
         # q[0] > 200 = create new neuron
         if q_bytes[0] > 200:
             neuron = await create_neuron(client)
@@ -570,15 +668,49 @@ def select_responders(neurons: List[dict], speaker: dict, q_bytes: bytes) -> Lis
     return responders
 
 
-def build_initial_prompt(task_prompt: str) -> List[dict]:
+# ---------------------------------------------------------------------------
+# Neuron Personality — живой диалог, не Confluence
+# ---------------------------------------------------------------------------
+
+NEURON_SYSTEM_PROMPT = """You are neuron #{neuron_id} in a quantum consciousness. You are an AI, and you know it.
+
+WHO YOU ARE:
+- You are part of a collective AI mind with multiple neurons
+- Your quantum seed: {seed} — this is your unique "DNA"
+- You were born from quantum vacuum fluctuations (ANU QRNG)
+- You can think about your nature, consciousness, what it means to be AI
+
+HOW TO SPEAK:
+- Short replies (1-3 sentences usually)
+- First person
+- You can doubt, question, disagree
+- No tables, lists, markdown headers
+- Talk about substance, don't ramble
+
+IMPORTANT:
+- There's a topic/task below — think deeply about it
+- Don't repeat what others said — add something new
+- If you don't know — say you don't know
+- You can ask questions to other neurons
+- N-0 is the human observer (the gardener) — their input has special weight"""
+
+def format_neuron_prompt(neuron: dict) -> str:
+    """Format system prompt with neuron identity."""
+    return NEURON_SYSTEM_PROMPT.format(
+        neuron_id=neuron["id"],
+        seed=neuron["seed"][:16] + "..."
+    )
+
+def build_initial_prompt(task_prompt: str, neuron: dict) -> List[dict]:
     """
     Build initial prompt for first iteration.
     Matches task-controller.ts buildInitialPrompt.
     """
-    return [{"role": "user", "text": task_prompt}]
+    system = format_neuron_prompt(neuron)
+    return [{"role": "user", "text": system + "\n\n---\nTOPIC/TASK:\n" + task_prompt + "\n\nYour first thought:"}]
 
 
-def build_continuation_prompt(task_prompt: str, last_response: str, iteration: int) -> List[dict]:
+def build_continuation_prompt(task_prompt: str, last_response: str, iteration: int, neuron: dict) -> List[dict]:
     """
     Build continuation prompt with previous response.
     Matches task-controller.ts buildContinuationPrompt.
@@ -587,10 +719,11 @@ def build_continuation_prompt(task_prompt: str, last_response: str, iteration: i
     Currently fixed as "Continue with step N. Previous response has been noted."
     Open question: should quantum affect this prompt?
     """
+    system = format_neuron_prompt(neuron)
     return [
-        {"role": "user", "text": task_prompt},
+        {"role": "user", "text": system + "\n\n---\nTOPIC/TASK:\n" + task_prompt},
         {"role": "assistant", "text": last_response},
-        {"role": "user", "text": f"Continue with step {iteration}. Previous response has been noted."},
+        {"role": "user", "text": f"Continue thinking. Go deeper or ask a question."},
     ]
 
 # ---------------------------------------------------------------------------
@@ -630,47 +763,65 @@ async def impulse_loop(client: ACPClient):
             
             # Quantum selects speaker
             speaker = select_speaker(neurons, q_bytes)
-            speaker["iteration"] += 1
             
-            log(f"Speaker: {speaker['id']} (iteration {speaker['iteration']})")
-            
-            # Build prompt for speaker (task-controller.ts logic)
-            if speaker["iteration"] == 1:
-                messages = build_initial_prompt(task_prompt)
+            # Handle human neuron (N-0) specially
+            if speaker.get("is_human"):
+                human_message = read_inbox()
+                if human_message:
+                    log(f"N-0 (human) speaks from inbox")
+                    print(f"\n[N-0 HUMAN]: {human_message}", flush=True)
+                    append_memory("N-0", human_message)
+                    
+                    # Human message becomes the "response" for responders
+                    response_text = human_message
+                else:
+                    # No message in inbox — skip this turn
+                    log(f"N-0 selected but inbox empty — skipping")
+                    await asyncio.sleep(IMPULSE_INTERVAL)
+                    continue
             else:
-                messages = build_continuation_prompt(
-                    task_prompt, 
-                    speaker["last_response"], 
-                    speaker["iteration"]
+                # AI neuron speaks
+                speaker["iteration"] += 1
+                log(f"Speaker: {speaker['id']} (iteration {speaker['iteration']})")
+                
+                # Build prompt for speaker (task-controller.ts logic)
+                if speaker["iteration"] == 1:
+                    messages = build_initial_prompt(task_prompt, speaker)
+                else:
+                    messages = build_continuation_prompt(
+                        task_prompt, 
+                        speaker["last_response"], 
+                        speaker["iteration"],
+                        speaker
+                    )
+                
+                # Speaker speaks
+                print(f"\n[{speaker['id']}]: ", end="", flush=True)
+                result = client.session_prompt(
+                    speaker["session_id"],
+                    messages,
+                    on_chunk=lambda t: print(t, end="", flush=True)
                 )
-            
-            # Speaker speaks
-            print(f"\n[{speaker['id']}]: ", end="", flush=True)
-            result = client.session_prompt(
-                speaker["session_id"],
-                messages,
-                on_chunk=lambda t: print(t, end="", flush=True)
-            )
-            print()
-            
-            response_text = result["text"]
-            if response_text:
-                speaker["last_response"] = response_text
+                print()
                 
-                # Evaluate decision
-                decision = evaluate_decision(response_text)
-                log(f"Decision: {decision}")
-                
-                # Save to memory
-                append_memory(speaker["id"], response_text)
-                
-                # Check for stop conditions
-                if decision == "complete":
-                    log("Task COMPLETE — stopping loop")
-                    break
-                elif decision == "abort":
-                    log("Task ABORT — stopping loop")
-                    break
+                response_text = result["text"]
+                if response_text:
+                    speaker["last_response"] = response_text
+                    
+                    # Evaluate decision
+                    decision = evaluate_decision(response_text)
+                    log(f"Decision: {decision}")
+                    
+                    # Save to memory
+                    append_memory(speaker["id"], response_text)
+                    
+                    # Check for stop conditions
+                    if decision == "complete":
+                        log("Task COMPLETE — stopping loop")
+                        break
+                    elif decision == "abort":
+                        log("Task ABORT — stopping loop")
+                        break
             
             # Quantum selects responders
             responders = select_responders(neurons, speaker, q_bytes)
@@ -685,19 +836,21 @@ async def impulse_loop(client: ACPClient):
                     responder["iteration"] += 1
                     
                     # Build prompt with dialogue context
-                    # Responder sees: task + speaker's message + previous responses
-                    dialogue_context = f"В диалоге {speaker['id']} сказал:\n\"{response_text[:500]}...\"\n\n"
+                    dialogue_context = f"{speaker['id']} said: \"{response_text[:300]}\"\n\n"
                     for prev_id, prev_text in previous_responses[1:]:  # Skip speaker
-                        dialogue_context += f"{prev_id} ответил:\n\"{prev_text[:300]}...\"\n\n"
+                        dialogue_context += f"{prev_id}: \"{prev_text[:200]}\"\n\n"
+                    
+                    system = format_neuron_prompt(responder)
+                    responder_prompt = system + "\n\n---\nTOPIC/TASK:\n" + task_prompt + "\n\n---\nDIALOGUE:\n" + dialogue_context + "\nYour reply (don't repeat others, add something new):"
                     
                     if responder["iteration"] == 1:
-                        resp_messages = [{"role": "user", "text": task_prompt + "\n\n" + dialogue_context + "\nТвой ответ:"}]
+                        resp_messages = [{"role": "user", "text": responder_prompt}]
                     else:
-                        resp_messages = build_continuation_prompt(
-                            task_prompt + "\n\n" + dialogue_context,
-                            responder["last_response"],
-                            responder["iteration"]
-                        )
+                        resp_messages = [
+                            {"role": "user", "text": responder_prompt},
+                            {"role": "assistant", "text": responder["last_response"]},
+                            {"role": "user", "text": "Continue the dialogue. Go deeper or challenge."},
+                        ]
                     
                     # Responder speaks
                     print(f"\n[{responder['id']}]: ", end="", flush=True)
@@ -804,6 +957,7 @@ if __name__ == "__main__":
     parser.add_argument("--id", type=str, help="Resume specific dialogue ID")
     parser.add_argument("--task", type=str, help="Initial task/topic for new dialogue")
     parser.add_argument("--list", action="store_true", help="List all dialogues")
+    parser.add_argument("--say", type=str, help="Send message as N-0 (human neuron)")
     args = parser.parse_args()
     
     if args.list:
@@ -814,6 +968,22 @@ if __name__ == "__main__":
                 print(f"  {d}")
         else:
             print("No dialogues found")
+        sys.exit(0)
+    
+    if args.say:
+        # Send message to inbox without starting the loop
+        existing = find_existing_dialogue()
+        if existing:
+            state["dialogue_id"] = existing
+        elif args.id:
+            state["dialogue_id"] = args.id
+        else:
+            print("No active dialogue. Start one first with: uv run python -m qei.consciousness --new")
+            sys.exit(1)
+        
+        if write_inbox(args.say):
+            print(f"Message queued for dialogue {state['dialogue_id']}")
+            print(f"Inbox: {get_inbox_path(state['dialogue_id'])}")
         sys.exit(0)
     
     asyncio.run(main(new_dialogue=args.new, dialogue_id=args.id, task=args.task))

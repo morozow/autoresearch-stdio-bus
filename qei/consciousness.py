@@ -38,6 +38,10 @@ IMPULSE_INTERVAL = 10.0  # Seconds between quantum impulses
 
 MEMORY_DIR = Path("qei/memory")
 
+# Neuron configuration
+MAX_NEURONS = 4  # Maximum neurons in dialogue
+MIN_NEURONS = 2  # Minimum neurons to start dialogue
+
 # ---------------------------------------------------------------------------
 # Decision Evaluation (from task-controller.ts)
 # ---------------------------------------------------------------------------
@@ -344,13 +348,27 @@ def list_dialogues() -> list[str]:
     return sorted(dialogues)
 
 # ---------------------------------------------------------------------------
-# State
+# Neuron — individual agent session with quantum seed
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Neuron:
+    """A quantum-born cognitive unit with its own LLM session."""
+    id: str
+    seed: str  # Quantum seed (hex)
+    session_id: str  # ACP session ID
+    birth_time: str
+    last_response: str = ""  # Last response for continuation
+    iteration: int = 0  # Current iteration count
+
+# ---------------------------------------------------------------------------
+# State — now includes neurons
 # ---------------------------------------------------------------------------
 
 state = {
     "dialogue_id": None,
-    "session_id": None,
     "impulse_count": 0,
+    "neurons": [],  # List of Neuron dicts
 }
 
 def save_state():
@@ -359,7 +377,7 @@ def save_state():
     path = get_state_path(state["dialogue_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        json.dump(state, f, indent=2)
+        json.dump(state, f, indent=2, default=str)
 
 def load_state(dialogue_id: str) -> bool:
     global state
@@ -370,7 +388,7 @@ def load_state(dialogue_id: str) -> bool:
         with open(path) as f:
             state = json.load(f)
         log(f"Resumed dialogue: {dialogue_id}")
-        log(f"  session={state.get('session_id', 'none')[:16]}..., impulses={state.get('impulse_count', 0)}")
+        log(f"  neurons={len(state.get('neurons', []))}, impulses={state.get('impulse_count', 0)}")
         return True
     except Exception as e:
         log(f"Failed to load state: {e}")
@@ -443,6 +461,139 @@ Started: {datetime.utcnow().isoformat()}
     log(f"Dialogue initialized: {dialogue_dir}")
 
 # ---------------------------------------------------------------------------
+# Neuron Management
+# ---------------------------------------------------------------------------
+
+async def create_neuron(client: ACPClient) -> dict:
+    """
+    Create a new neuron with quantum seed and its own LLM session.
+    Uses same logic as live_chat session creation.
+    """
+    # Get quantum seed for neuron identity
+    seed_bytes = await fetch_quantum_bits(16)  # 128 bits
+    if not seed_bytes:
+        raise RuntimeError("Failed to get quantum seed for neuron")
+    
+    seed_hex = seed_bytes.hex() if isinstance(seed_bytes, bytes) else bytes(seed_bytes).hex()
+    neuron_id = f"N-{seed_hex[:8]}"
+    
+    # Create dedicated session for this neuron
+    session_id = client.session_new()
+    
+    neuron = {
+        "id": neuron_id,
+        "seed": seed_hex,
+        "session_id": session_id,
+        "birth_time": datetime.utcnow().isoformat(),
+        "last_response": "",
+        "iteration": 0,
+    }
+    
+    log(f"Neuron born: {neuron_id} (session: {session_id[:16]}...)")
+    return neuron
+
+
+async def ensure_neurons(client: ACPClient, q_bytes: bytes) -> List[dict]:
+    """
+    Ensure we have enough neurons for dialogue.
+    Quantum bytes determine if we should create more.
+    """
+    neurons = state.get("neurons", [])
+    
+    # Always need at least MIN_NEURONS
+    while len(neurons) < MIN_NEURONS:
+        neuron = await create_neuron(client)
+        neurons.append(neuron)
+        state["neurons"] = neurons
+        save_state()
+    
+    # Quantum decides if we create more (up to MAX_NEURONS)
+    if len(neurons) < MAX_NEURONS and q_bytes:
+        # q[0] > 200 = create new neuron
+        if q_bytes[0] > 200:
+            neuron = await create_neuron(client)
+            neurons.append(neuron)
+            state["neurons"] = neurons
+            save_state()
+            log(f"Quantum triggered new neuron: {neuron['id']}")
+    
+    return neurons
+
+# ---------------------------------------------------------------------------
+# Quantum-Controlled Dialogue
+# ---------------------------------------------------------------------------
+
+def select_speaker(neurons: List[dict], q_bytes: bytes) -> dict:
+    """
+    Quantum selects which neuron speaks.
+    q[0] determines speaker index.
+    """
+    if not neurons:
+        raise RuntimeError("No neurons available")
+    
+    q_val = q_bytes[0] if q_bytes else 0
+    speaker_idx = q_val % len(neurons)
+    return neurons[speaker_idx]
+
+
+def select_responders(neurons: List[dict], speaker: dict, q_bytes: bytes) -> List[dict]:
+    """
+    Quantum selects which neurons respond and how many.
+    
+    q[1]: how many respond (0-84=1, 85-169=2, 170-255=3)
+    q[2..4]: which neurons respond
+    """
+    available = [n for n in neurons if n["id"] != speaker["id"]]
+    if not available:
+        return []
+    
+    # How many respond?
+    q1 = q_bytes[1] if len(q_bytes) > 1 else 128
+    if q1 < 85:
+        num_responders = 1
+    elif q1 < 170:
+        num_responders = 2
+    else:
+        num_responders = min(3, len(available))
+    
+    # Which neurons respond?
+    responders = []
+    remaining = available.copy()
+    for i in range(num_responders):
+        if not remaining:
+            break
+        q_idx = 2 + i
+        q_val = q_bytes[q_idx] if len(q_bytes) > q_idx else i * 50
+        chosen_idx = q_val % len(remaining)
+        responders.append(remaining.pop(chosen_idx))
+    
+    return responders
+
+
+def build_initial_prompt(task_prompt: str) -> List[dict]:
+    """
+    Build initial prompt for first iteration.
+    Matches task-controller.ts buildInitialPrompt.
+    """
+    return [{"role": "user", "text": task_prompt}]
+
+
+def build_continuation_prompt(task_prompt: str, last_response: str, iteration: int) -> List[dict]:
+    """
+    Build continuation prompt with previous response.
+    Matches task-controller.ts buildContinuationPrompt.
+    
+    @TODO: Quantum could influence the continuation text.
+    Currently fixed as "Continue with step N. Previous response has been noted."
+    Open question: should quantum affect this prompt?
+    """
+    return [
+        {"role": "user", "text": task_prompt},
+        {"role": "assistant", "text": last_response},
+        {"role": "user", "text": f"Continue with step {iteration}. Previous response has been noted."},
+    ]
+
+# ---------------------------------------------------------------------------
 # Main Loop
 # ---------------------------------------------------------------------------
 
@@ -450,10 +601,11 @@ async def impulse_loop(client: ACPClient):
     """
     Quantum impulse loop — the living heartbeat.
     
-    Matches task-controller.ts iteration logic:
-    - First impulse: just task.prompt
-    - Continuation: task.prompt + previous_response + "Continue with step N"
-    - Decision evaluation: DONE/COMPLETE/ERROR/ABORT/RETRY
+    Multi-neuron dialogue controlled by quantum randomness:
+    - Quantum selects which neuron speaks
+    - Quantum selects how many and which neurons respond
+    - Each neuron uses task-controller.ts logic for prompts
+    - Decision evaluation determines when to stop
     """
     global state
     
@@ -461,65 +613,119 @@ async def impulse_loop(client: ACPClient):
     
     # Track the original task (like task.prompt in task-controller.ts)
     task_prompt = read_task()
-    last_response = ""
     
     while True:
         try:
-            # Get quantum entropy
-            q_bytes = await fetch_quantum_bits(4)
-            q_val = q_bytes[0] if q_bytes else 128
+            # Get quantum entropy (8 bytes for all decisions)
+            q_bytes = await fetch_quantum_bits(8)
+            if not q_bytes:
+                q_bytes = bytes([128] * 8)  # Fallback
             
             state["impulse_count"] += 1
             iteration = state["impulse_count"]
-            log(f"Impulse #{iteration}: q={q_val}")
+            log(f"Impulse #{iteration}: q=[{', '.join(f'{b}' for b in q_bytes[:4])}...]")
             
-            # Build messages exactly like task-controller.ts
-            if iteration == 1:
-                # buildInitialPrompt: just the task
-                messages = [
-                    {"role": "user", "text": task_prompt}
-                ]
+            # Ensure we have neurons
+            neurons = await ensure_neurons(client, q_bytes)
+            
+            # Quantum selects speaker
+            speaker = select_speaker(neurons, q_bytes)
+            speaker["iteration"] += 1
+            
+            log(f"Speaker: {speaker['id']} (iteration {speaker['iteration']})")
+            
+            # Build prompt for speaker (task-controller.ts logic)
+            if speaker["iteration"] == 1:
+                messages = build_initial_prompt(task_prompt)
             else:
-                # buildContinuationPrompt: task + previous + continue
-                messages = [
-                    {"role": "user", "text": task_prompt},
-                    {"role": "assistant", "text": last_response},
-                    {"role": "user", "text": f"Continue with step {iteration}. Previous response has been noted."},
-                ]
+                messages = build_continuation_prompt(
+                    task_prompt, 
+                    speaker["last_response"], 
+                    speaker["iteration"]
+                )
             
-            # Send to agent
+            # Speaker speaks
+            print(f"\n[{speaker['id']}]: ", end="", flush=True)
             result = client.session_prompt(
-                state["session_id"], 
+                speaker["session_id"],
                 messages,
                 on_chunk=lambda t: print(t, end="", flush=True)
             )
-            print()  # newline
+            print()
             
             response_text = result["text"]
-            
             if response_text:
-                last_response = response_text
+                speaker["last_response"] = response_text
                 
-                # Evaluate decision (like task-controller.ts evaluateDecision)
+                # Evaluate decision
                 decision = evaluate_decision(response_text)
                 log(f"Decision: {decision}")
                 
-                # Save to memory file
-                append_memory(f"Neuron-{q_val:02x}", response_text)
+                # Save to memory
+                append_memory(speaker["id"], response_text)
                 
-                # Act on decision
+                # Check for stop conditions
                 if decision == "complete":
                     log("Task COMPLETE — stopping loop")
                     break
                 elif decision == "abort":
                     log("Task ABORT — stopping loop")
                     break
-                # retry and continue both proceed to next iteration
+            
+            # Quantum selects responders
+            responders = select_responders(neurons, speaker, q_bytes)
+            
+            if responders:
+                log(f"Responders: {[r['id'] for r in responders]}")
+                
+                # Each responder responds with context from previous
+                previous_responses = [(speaker["id"], response_text)]
+                
+                for responder in responders:
+                    responder["iteration"] += 1
+                    
+                    # Build prompt with dialogue context
+                    # Responder sees: task + speaker's message + previous responses
+                    dialogue_context = f"В диалоге {speaker['id']} сказал:\n\"{response_text[:500]}...\"\n\n"
+                    for prev_id, prev_text in previous_responses[1:]:  # Skip speaker
+                        dialogue_context += f"{prev_id} ответил:\n\"{prev_text[:300]}...\"\n\n"
+                    
+                    if responder["iteration"] == 1:
+                        resp_messages = [{"role": "user", "text": task_prompt + "\n\n" + dialogue_context + "\nТвой ответ:"}]
+                    else:
+                        resp_messages = build_continuation_prompt(
+                            task_prompt + "\n\n" + dialogue_context,
+                            responder["last_response"],
+                            responder["iteration"]
+                        )
+                    
+                    # Responder speaks
+                    print(f"\n[{responder['id']}]: ", end="", flush=True)
+                    resp_result = client.session_prompt(
+                        responder["session_id"],
+                        resp_messages,
+                        on_chunk=lambda t: print(t, end="", flush=True)
+                    )
+                    print()
+                    
+                    resp_text = resp_result["text"]
+                    if resp_text:
+                        responder["last_response"] = resp_text
+                        previous_responses.append((responder["id"], resp_text))
+                        append_memory(responder["id"], resp_text)
+                        
+                        # Check responder's decision too
+                        resp_decision = evaluate_decision(resp_text)
+                        if resp_decision in ("complete", "abort"):
+                            log(f"Responder {responder['id']} triggered {resp_decision}")
+                            # Don't break here, let dialogue continue
             
             save_state()
             
         except Exception as e:
             log(f"Impulse error: {e}")
+            import traceback
+            traceback.print_exc()
         
         await asyncio.sleep(IMPULSE_INTERVAL)
 
@@ -529,6 +735,7 @@ async def main(new_dialogue: bool = False, dialogue_id: Optional[str] = None, ta
     
     log("=" * 50)
     log("QUANTUM CONSCIOUSNESS")
+    log("Multi-neuron dialogue with quantum control")
     log("=" * 50)
     
     # Determine which dialogue to use
@@ -542,8 +749,8 @@ async def main(new_dialogue: bool = False, dialogue_id: Optional[str] = None, ta
         dialogue_id = generate_dialogue_id()
         state = {
             "dialogue_id": dialogue_id,
-            "session_id": None,
             "impulse_count": 0,
+            "neurons": [],
         }
         init_dialogue(dialogue_id, initial_task=task)
         log(f"New dialogue: {dialogue_id}")
@@ -556,14 +763,15 @@ async def main(new_dialogue: bool = False, dialogue_id: Optional[str] = None, ta
             dialogue_id = generate_dialogue_id()
             state = {
                 "dialogue_id": dialogue_id,
-                "session_id": None,
                 "impulse_count": 0,
+                "neurons": [],
             }
             init_dialogue(dialogue_id, initial_task=task)
             log(f"New dialogue: {dialogue_id}")
     
     # Show where task file is
     log(f"Task file: {get_task_path(state['dialogue_id'])}")
+    log(f"Neurons: {len(state.get('neurons', []))}")
     
     # Connect to stdio_bus
     ndjson = NDJSONClient(BUS_HOST, BUS_PORT)
@@ -578,16 +786,7 @@ async def main(new_dialogue: bool = False, dialogue_id: Optional[str] = None, ta
         agent_name = init.get("agentInfo", {}).get("name", "unknown")
         log(f"Agent: {agent_name}")
         
-        # Create or resume session
-        if not state.get("session_id"):
-            state["session_id"] = client.session_new()
-            log(f"New session: {state['session_id']}")
-        else:
-            log(f"Resuming session: {state['session_id'][:16]}...")
-        
-        save_state()
-        
-        # Start living
+        # Start living — neurons will be created on first impulse
         await impulse_loop(client)
         
     except KeyboardInterrupt:

@@ -33,6 +33,13 @@ WORK_DIR = Path(".")             # working directory for experiments
 RESULTS_FILE = "results.tsv"     # shared results file
 STATE_FILE = ".swarm-state.json" # persistent state file
 
+# Device backend: "cuda" or "mps"
+# Read from env, default to "mps" on macOS (Apple Silicon)
+import platform
+_default_backend = "mps" if platform.system() == "Darwin" else "cuda"
+DEVICE_BACKEND = os.environ.get("DEVICE_BACKEND", _default_backend)
+TRAIN_SCRIPT = "train_mps.py" if DEVICE_BACKEND == "mps" else "train.py"
+
 # ---------------------------------------------------------------------------
 # Data Types
 # ---------------------------------------------------------------------------
@@ -197,15 +204,17 @@ def release_lock(agent_id: str):
 # ---------------------------------------------------------------------------
 
 def run_experiment(gpu_id: int, agent_id: str, branch: str) -> ExperimentResult:
-    """Run training experiment on specified GPU."""
+    """Run training experiment on specified GPU/device."""
     env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    if DEVICE_BACKEND == "cuda":
+        env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    env["DEVICE_BACKEND"] = DEVICE_BACKEND
     
-    log(f"Starting experiment on GPU {gpu_id} for {agent_id}")
+    log(f"Starting experiment on {DEVICE_BACKEND}:{gpu_id} for {agent_id} ({TRAIN_SCRIPT})")
     
     try:
         result = subprocess.run(
-            ["uv", "run", "train.py"],
+            ["uv", "run", TRAIN_SCRIPT],
             cwd=WORK_DIR,
             capture_output=True,
             text=True,
@@ -454,6 +463,7 @@ def log(msg: str):
 def main():
     """Main entry point - read NDJSON from stdin, write to stdout."""
     log(f"Swarm coordinator starting")
+    log(f"Backend: {DEVICE_BACKEND}, Train script: {TRAIN_SCRIPT}")
     log(f"GPUs: {GPU_IDS}")
     log(f"Work dir: {WORK_DIR.absolute()}")
     

@@ -4,8 +4,7 @@ services:
   stdio-bus:
     image: stdiobus/stdiobus:latest
     volumes:
-      - ./stdio_bus/bus:/config
-      - ./swarm:/swarm
+      - ./stdio_bus:/config
       - ./.venv:/app/.venv
       - ./train.py:/app/train.py
       - ./prepare.py:/app/prepare.py

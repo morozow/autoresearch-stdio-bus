@@ -1,3 +1,0 @@
-[2026-03-10T22:48:51.304Z] [INFO] Starting swarm coordinator {"gpuIds":[0],"poolCount":1}
-[2026-03-10T22:48:51.307Z] [INFO] Spawning worker {"agentId":"agent-0","gpuId":0}
-[2026-03-10T22:48:52.880Z] [INFO] Swarm coordinator started {"activeWorkers":1}

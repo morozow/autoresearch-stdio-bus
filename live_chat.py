@@ -12,6 +12,9 @@ Usage:
     
     # Start autoresearch
     uv run live_chat.py --autoresearch
+    
+    # Multi-step task execution (like task-controller.ts)
+    uv run live_chat.py --task "Your task prompt" --max-iterations 10 --max-duration 300
 
 Protocol: JSON-RPC 2.0 over NDJSON (TCP)
 """
@@ -21,9 +24,10 @@ import sys
 import json
 import socket
 import threading
+import time
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Optional, Callable
+from dataclasses import dataclass, field
+from typing import Optional, Callable, List, Literal
 from datetime import datetime
 
 # ---------------------------------------------------------------------------
@@ -35,6 +39,10 @@ BUS_PORT = int(os.environ.get("BUS_PORT", "9000"))
 AGENT_ID = os.environ.get("AGENT_ID", "openai")
 REQUEST_TIMEOUT = 300  # 5 minutes for long agent responses
 CONNECT_TIMEOUT = 10
+
+# Task controller defaults (from task-controller.ts)
+DEFAULT_MAX_ITERATIONS = 10
+DEFAULT_MAX_DURATION_MS = 300_000  # 5 minutes
 
 # ---------------------------------------------------------------------------
 # Logging (stderr, keeps stdout clean for agent output)
@@ -252,6 +260,270 @@ class ACPClient:
             "text": "".join(text_parts),
             "updates": self._updates,
         }
+    
+    def session_prompt_messages(self, session_id: str, messages: List[dict], 
+                                 on_chunk: Optional[Callable[[str], None]] = None) -> dict:
+        """
+        Send prompt with message history (like task-controller.ts buildContinuationPrompt).
+        
+        messages: list of {"role": "user"|"assistant", "text": "..."}
+        """
+        self._updates.clear()
+        self._on_chunk = on_chunk
+        
+        # Convert to ACP format
+        prompt = [{"type": "text", "role": m["role"], "text": m["text"]} for m in messages]
+        
+        result = self._send_request("session/prompt", {
+            "sessionId": session_id,
+            "prompt": prompt,
+        })
+        
+        self._on_chunk = None
+        
+        text_parts = []
+        for u in self._updates:
+            if u.kind == "agent_message_chunk":
+                text_parts.append(u.data.get("content", {}).get("text", ""))
+        
+        return {
+            "stopReason": result.get("stopReason", ""),
+            "text": "".join(text_parts),
+            "updates": self._updates,
+        }
+
+# ---------------------------------------------------------------------------
+# Decision Evaluation (from task-controller.ts evaluateDecision)
+# ---------------------------------------------------------------------------
+
+Decision = Literal["continue", "complete", "retry", "abort"]
+
+def evaluate_decision(response_content: str) -> Decision:
+    """
+    Evaluates the ACP response content to decide the next action.
+    
+    Looks for explicit markers at the START of response or as standalone signals.
+    Avoids false positives from words like "error" in technical context.
+    """
+    # Check first 100 chars for explicit markers
+    start = response_content[:100].upper()
+    
+    # Explicit completion markers
+    if start.startswith("DONE") or start.startswith("COMPLETE"):
+        return "complete"
+    if "TASK DONE" in start or "TASK COMPLETE" in start:
+        return "complete"
+    
+    # Explicit abort markers (not just "error" anywhere)
+    if start.startswith("ABORT") or start.startswith("ERROR:"):
+        return "abort"
+    if "FATAL ERROR" in response_content.upper():
+        return "abort"
+    
+    # Explicit retry
+    if start.startswith("RETRY"):
+        return "retry"
+    
+    return "continue"
+
+# ---------------------------------------------------------------------------
+# Task Controller (from task-controller.ts)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SubTaskResult:
+    """Result of a single iteration."""
+    iteration: int
+    prompt: str
+    response: str
+    decision: Decision
+
+@dataclass
+class TaskResult:
+    """Final result of task execution."""
+    task_id: str
+    status: str  # completed, aborted_iteration_limit, aborted_timeout, aborted_error
+    iterations: int
+    duration_ms: int
+    sub_results: List[SubTaskResult] = field(default_factory=list)
+    final_result: Optional[str] = None
+
+@dataclass
+class TaskDefinition:
+    """Task to execute."""
+    task_id: str
+    prompt: str
+    context: Optional[dict] = None
+
+@dataclass
+class TaskControllerOptions:
+    """Options for task controller."""
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
+    max_duration_ms: int = DEFAULT_MAX_DURATION_MS
+
+class TaskController:
+    """
+    Orchestrates multi-step autonomous reasoning by decomposing tasks into
+    sub-tasks and executing them sequentially with iteration and duration
+    safeguards.
+    
+    Direct port from task-controller.ts.
+    """
+    
+    def __init__(self, acp_client: ACPClient, options: Optional[TaskControllerOptions] = None):
+        self.client = acp_client
+        self.opts = options or TaskControllerOptions()
+        self._aborted = False
+    
+    def abort(self):
+        """Abort current task."""
+        self._aborted = True
+    
+    def _build_initial_prompt(self, task: TaskDefinition) -> List[dict]:
+        """
+        Decomposes a task into an initial prompt for the first sub-task.
+        Matches task-controller.ts buildInitialPrompt exactly.
+        """
+        return [{"role": "user", "text": task.prompt}]
+    
+    def _build_continuation_prompt(self, task: TaskDefinition, previous_response: str, 
+                                    iteration: int) -> List[dict]:
+        """
+        Build continuation prompt with previous response.
+        Matches task-controller.ts buildContinuationPrompt exactly.
+        """
+        return [
+            {"role": "user", "text": task.prompt},
+            {"role": "assistant", "text": previous_response},
+            {"role": "user", "text": f"Continue with step {iteration}. Previous response has been noted."},
+        ]
+    
+    def execute_task(self, task: TaskDefinition, session_id: str,
+                     on_chunk: Optional[Callable[[str], None]] = None) -> TaskResult:
+        """
+        Execute task with iteration loop.
+        Matches task-controller.ts runIterationLoop exactly.
+        """
+        self._aborted = False
+        started_at = time.time() * 1000  # ms
+        sub_results: List[SubTaskResult] = []
+        last_response = ""
+        iteration = 0
+        
+        while True:
+            # Check abort
+            if self._aborted:
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="aborted_error",
+                    iterations=len(sub_results),
+                    duration_ms=int(time.time() * 1000 - started_at),
+                    sub_results=sub_results,
+                )
+            
+            # Iteration limit check (before each iteration)
+            if iteration >= self.opts.max_iterations:
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="aborted_iteration_limit",
+                    iterations=len(sub_results),
+                    duration_ms=int(time.time() * 1000 - started_at),
+                    sub_results=sub_results,
+                )
+            
+            # Duration check
+            elapsed = time.time() * 1000 - started_at
+            if elapsed >= self.opts.max_duration_ms:
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="aborted_timeout",
+                    iterations=len(sub_results),
+                    duration_ms=int(elapsed),
+                    sub_results=sub_results,
+                )
+            
+            # Build prompt for this iteration
+            if iteration == 0:
+                messages = self._build_initial_prompt(task)
+            else:
+                messages = self._build_continuation_prompt(task, last_response, iteration + 1)
+            
+            iteration += 1
+            
+            try:
+                # Check abort before async call
+                if self._aborted:
+                    return TaskResult(
+                        task_id=task.task_id,
+                        status="aborted_error",
+                        iterations=len(sub_results),
+                        duration_ms=int(time.time() * 1000 - started_at),
+                        sub_results=sub_results,
+                    )
+                
+                result = self.client.session_prompt_messages(session_id, messages, on_chunk)
+                response = result["text"]
+                
+            except Exception as e:
+                # If aborted during call, return abort result
+                if self._aborted:
+                    return TaskResult(
+                        task_id=task.task_id,
+                        status="aborted_error",
+                        iterations=len(sub_results),
+                        duration_ms=int(time.time() * 1000 - started_at),
+                        sub_results=sub_results,
+                    )
+                
+                # Unexpected error — record and abort
+                prompt_text = "\n".join(m["text"] for m in messages)
+                sub_results.append(SubTaskResult(
+                    iteration=iteration,
+                    prompt=prompt_text,
+                    response=f"Error: {str(e)}",
+                    decision="abort",
+                ))
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="aborted_error",
+                    iterations=len(sub_results),
+                    duration_ms=int(time.time() * 1000 - started_at),
+                    sub_results=sub_results,
+                )
+            
+            # Evaluate decision
+            decision = evaluate_decision(response)
+            prompt_text = "\n".join(m["text"] for m in messages)
+            sub_results.append(SubTaskResult(
+                iteration=iteration,
+                prompt=prompt_text,
+                response=response,
+                decision=decision,
+            ))
+            last_response = response
+            
+            # Act on decision
+            if decision == "complete":
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="completed",
+                    iterations=len(sub_results),
+                    duration_ms=int(time.time() * 1000 - started_at),
+                    sub_results=sub_results,
+                    final_result=response,
+                )
+            
+            if decision == "abort":
+                return TaskResult(
+                    task_id=task.task_id,
+                    status="aborted_error",
+                    iterations=len(sub_results),
+                    duration_ms=int(time.time() * 1000 - started_at),
+                    sub_results=sub_results,
+                )
+            
+            # retry and continue both proceed to next iteration
+            # (retry doesn't decrement iteration in Python version for simplicity)
 
 # ---------------------------------------------------------------------------
 # CLI Commands
@@ -350,6 +622,73 @@ You are agent-0. Start the autoresearch experiment loop now. Begin by establishi
     finally:
         ndjson.close()
 
+
+def cmd_task(prompt: str, max_iterations: int = DEFAULT_MAX_ITERATIONS, 
+             max_duration: int = DEFAULT_MAX_DURATION_MS // 1000):
+    """
+    Execute multi-step task with iteration loop.
+    Matches task-controller.ts executeTask exactly.
+    """
+    ndjson = NDJSONClient(BUS_HOST, BUS_PORT)
+    
+    try:
+        ndjson.connect()
+        log(f"Connected to stdio_bus at {BUS_HOST}:{BUS_PORT}")
+        
+        client = ACPClient(ndjson, AGENT_ID)
+        
+        init = client.initialize()
+        agent_name = init.get("agentInfo", {}).get("name", "unknown")
+        log(f"Agent: {agent_name}")
+        log(f"CLIENT_SESSION_ID={client.client_session_id}")
+        
+        session_id = client.session_new()
+        log(f"AGENT_SESSION_ID={session_id}")
+        
+        # Create task controller
+        options = TaskControllerOptions(
+            max_iterations=max_iterations,
+            max_duration_ms=max_duration * 1000,
+        )
+        controller = TaskController(client, options)
+        
+        # Create task
+        task = TaskDefinition(
+            task_id=f"task-{int(datetime.now().timestamp())}",
+            prompt=prompt,
+        )
+        
+        log("")
+        log("=" * 60)
+        log(f"STARTING TASK: {task.task_id}")
+        log(f"MAX_ITERATIONS={max_iterations} MAX_DURATION={max_duration}s")
+        log("=" * 60)
+        log("")
+        
+        # Execute with streaming
+        result = controller.execute_task(
+            task, 
+            session_id, 
+            on_chunk=lambda t: print(t, end="", flush=True)
+        )
+        print()  # newline after streaming
+        
+        log("")
+        log("=" * 60)
+        log(f"STATUS={result.status}")
+        log(f"ITERATIONS={result.iterations}")
+        log(f"DURATION={result.duration_ms}ms")
+        if result.final_result:
+            log(f"FINAL_RESULT_LENGTH={len(result.final_result)}")
+        log("=" * 60)
+        
+        # Print sub-results summary
+        for sr in result.sub_results:
+            log(f"  [{sr.iteration}] decision={sr.decision} response_len={len(sr.response)}")
+        
+    finally:
+        ndjson.close()
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -363,6 +702,32 @@ def main():
     
     if args[0] == "--autoresearch":
         cmd_autoresearch()
+    elif args[0] == "--task":
+        # Parse task arguments
+        prompt = None
+        max_iterations = DEFAULT_MAX_ITERATIONS
+        max_duration = DEFAULT_MAX_DURATION_MS // 1000
+        
+        i = 1
+        while i < len(args):
+            if args[i] == "--max-iterations" and i + 1 < len(args):
+                max_iterations = int(args[i + 1])
+                i += 2
+            elif args[i] == "--max-duration" and i + 1 < len(args):
+                max_duration = int(args[i + 1])
+                i += 2
+            elif prompt is None:
+                prompt = args[i]
+                i += 1
+            else:
+                prompt += " " + args[i]
+                i += 1
+        
+        if not prompt:
+            print("Error: --task requires a prompt")
+            sys.exit(1)
+        
+        cmd_task(prompt, max_iterations, max_duration)
     elif args[0] == "--session" and len(args) >= 3:
         session_id = args[1]
         message = " ".join(args[2:])

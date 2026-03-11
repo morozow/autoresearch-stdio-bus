@@ -1,0 +1,24 @@
+{
+  "agents": [
+    {
+      "id": "openai",
+      "name": "OpenAI Bedrock Agent",
+      "version": "1.0.0",
+      "description": "OpenAI Chat Completions API agent via ACP protocol",
+      "distribution": {
+        "npx": {
+          "package": "@stdiobus/workers-registry",
+          "args": [
+            "openai-agent"
+          ],
+          "env": {
+            "OPENAI_BASE_URL": "https://bedrock-mantle.us-east-1.api.aws/v1",
+            "OPENAI_MODEL": "openai.gpt-oss-120b",
+            "OPENAI_API_KEY": "",
+            "AWS_BEARER_TOKEN_BEDROCK": ""
+          }
+        }
+      }
+    }
+  ]
+}

@@ -23,7 +23,7 @@
         "DEVICE_BACKEND": "mps"
       },
       "instances": 1,
-      "cwd": "../../"
+      "cwd": "../"
     }
   ]
 }

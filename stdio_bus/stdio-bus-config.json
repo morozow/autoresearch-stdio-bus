@@ -24,6 +24,19 @@
       },
       "instances": 1,
       "cwd": "../"
+    },
+    {
+      "id": "qei",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "qei.worker"
+      ],
+      "env": {},
+      "instances": 1,
+      "cwd": "../"
     }
   ]
 }

@@ -12,8 +12,8 @@
 -    fa3 = None
 -    cap = None
 +# ---------------------------------------------------------------------------
-+# Backend handling – flash‑attention kernels are not available.
-+# We will use PyTorch's native scaled‑dot‑product attention (SDPA) everywhere.
++# Flash‑Attention kernels are not available in this environment.
++# We will rely on PyTorch's native scaled‑dot‑product attention (SDPA) everywhere.
 +# ---------------------------------------------------------------------------
-+fa3 = None   # placeholder kept for compatibility; not used
++fa3 = None   # placeholder (unused)
 *** End Patch

@@ -99,9 +99,21 @@ export interface ConfigOption {
   value: string;
 }
 
+export interface MCPServerConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Array<{ name: string; value: string }>;
+}
+
+export interface SessionNewOptions {
+  configOptions?: ConfigOption[];
+  mcpServers?: MCPServerConfig[];
+}
+
 export interface StdioBusACPClient extends EventEmitter {
   initialize(): Promise<InitializeResult>;
-  sessionNew(configOptions?: ConfigOption[]): Promise<SessionNewResult>;
+  sessionNew(options?: SessionNewOptions): Promise<SessionNewResult>;
   sessionPrompt(sessionId: string, text: string, role?: string): Promise<PromptResult>;
   sessionConfigure(sessionId: string, options: ConfigOption[]): Promise<void>;
   sessionCancel(sessionId: string): void;
@@ -185,10 +197,13 @@ export function createStdioBusACPClient(
     return resp.result as InitializeResult;
   }
 
-  async function sessionNew(configOptions?: ConfigOption[]): Promise<SessionNewResult> {
+  async function sessionNew(options?: SessionNewOptions): Promise<SessionNewResult> {
     const params: Record<string, unknown> = { cwd: process.cwd(), mcpServers: [] };
-    if (configOptions && configOptions.length > 0) {
-      params['configOptions'] = configOptions;
+    if (options?.configOptions && options.configOptions.length > 0) {
+      params['configOptions'] = options.configOptions;
+    }
+    if (options?.mcpServers && options.mcpServers.length > 0) {
+      params['mcpServers'] = options.mcpServers;
     }
     const resp = await send('session/new', params);
     if (resp.error) throw new Error(`session/new: [${resp.error.code}] ${resp.error.message}`);

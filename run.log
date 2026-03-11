@@ -1,14 +1,4 @@
 Traceback (most recent call last):
-  File "/Users/etc/Projects/WorkTIF/stdio-Bus/external_enhancements/autoresearch/train.py", line 21, in <module>
-    import torch
-  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/torch/__init__.py", line 2099, in <module>
-    _C._initExtension(_manager_path())
-  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/torch/cuda/__init__.py", line 1800, in <module>
-    from . import amp, jiterator, nvtx, profiler, sparse, tunable
-  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
-  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
-  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
-  File "<frozen importlib._bootstrap_external>", line 991, in exec_module
-  File "<frozen importlib._bootstrap_external>", line 1087, in get_code
-  File "<frozen importlib._bootstrap_external>", line 1187, in get_data
-KeyboardInterrupt
+  File "/Users/etc/Projects/WorkTIF/stdio-Bus/external_enhancements/autoresearch/train.py", line 19, in <module>
+    from kernels import get_kernel
+ModuleNotFoundError: No module named 'kernels'

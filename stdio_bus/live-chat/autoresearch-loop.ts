@@ -30,7 +30,12 @@ function runCommand(cmd: string, cwd: string = PROJECT_ROOT): { success: boolean
       cwd,
       encoding: 'utf-8',
       timeout: 600000, // 10 min for training
-      maxBuffer: 10 * 1024 * 1024
+      maxBuffer: 10 * 1024 * 1024,
+      env: {
+        ...process.env,
+        PATH: `${process.env.HOME}/.local/bin:${process.env.PATH}`,
+        DEVICE_BACKEND: 'mps',  // Use MPS on Apple Silicon
+      },
     });
     return { success: true, output };
   } catch (err: any) {

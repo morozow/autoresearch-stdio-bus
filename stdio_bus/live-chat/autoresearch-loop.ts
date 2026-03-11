@@ -19,7 +19,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 // Read program files
 function loadPrograms(): string {
   const programMd = fs.readFileSync(path.join(PROJECT_ROOT, 'program.md'), 'utf-8');
-  const programSwarmMd = fs.readFileSync(path.join(PROJECT_ROOT, 'swarm/docs/program-swarm.md'), 'utf-8');
+  const programSwarmMd = fs.readFileSync(path.join(PROJECT_ROOT, 'program-swarm.md'), 'utf-8');
   return `${programMd}\n\n---\n\n${programSwarmMd}`;
 }
 

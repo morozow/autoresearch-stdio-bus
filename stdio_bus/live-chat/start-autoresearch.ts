@@ -5,7 +5,7 @@
 // Usage:
 //   npx tsx live-chat/start-autoresearch.ts
 //
-// Reads program.md and swarm/docs/program-swarm.md, combines them,
+// Reads program.md and .kiro/steering/program-swarm.md, combines them,
 // and sends to the agent via stdio_bus to start autonomous experimentation.
 
 import * as fs from 'node:fs';
@@ -19,7 +19,7 @@ const AGENT_ID = process.env.AGENT_ID ?? 'openai';
 // Paths relative to project root (parent of stdio_bus)
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const PROGRAM_MD = path.join(PROJECT_ROOT, 'program.md');
-const PROGRAM_SWARM_MD = path.join(PROJECT_ROOT, 'swarm/docs/program-swarm.md');
+const PROGRAM_SWARM_MD = path.join(PROJECT_ROOT, 'program-swarm.md');
 
 async function main() {
   // Read program files

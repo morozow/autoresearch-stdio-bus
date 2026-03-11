@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/Users/etc/Projects/WorkTIF/stdio-Bus/external_enhancements/autoresearch/train.py", line 19, in <module>
-    from kernels import get_kernel
-ModuleNotFoundError: No module named 'kernels'

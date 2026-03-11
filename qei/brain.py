@@ -48,6 +48,11 @@ ACTIVATION_THRESHOLD = 128         # 0-255: below = activate, above = maybe crea
 CREATION_THRESHOLD = 200           # 0-255: above this AND entropy allows = create new
 MEMORY_BASE = Path("qei/memory")   # Base directory for all brains
 
+# Memory management
+MEMORY_MAX_ENTRIES = 50            # Max entries before compaction
+MEMORY_COMPACT_TO = 20             # Keep this many recent entries after compaction
+RESET_FOCUS_INTERVAL = 10          # Every N activations, reset to pure task focus
+
 # LLM connection (stdio_bus ACP)
 BUS_HOST = os.environ.get("BUS_HOST", "127.0.0.1")
 BUS_PORT = int(os.environ.get("BUS_PORT", "9000"))
@@ -270,9 +275,91 @@ def get_memory_context(max_chars: int = 2000) -> str:
     return "...\n" + memory[-max_chars:]
 
 
+def get_last_dialogue_turn() -> Optional[str]:
+    """Get the most recent dialogue turn from memory."""
+    memory = read_memory()
+    
+    # Find last DIALOGUE entry
+    parts = memory.split("\n---\n")
+    for part in reversed(parts):
+        if "] DIALOGUE" in part:
+            return part.strip()
+    
+    return None
+
+
 def get_task_context() -> str:
     """Get current task for neuron prompt."""
     return read_task()
+
+
+def count_memory_entries() -> int:
+    """Count number of entries in memory file."""
+    memory = read_memory()
+    return memory.count("\n---\n")
+
+
+def compact_memory():
+    """
+    Compact memory: keep header + summary of old + recent entries.
+    
+    This implements the 'forgetting' mechanism — old details fade,
+    only essence remains.
+    """
+    path = get_memory_path(state.brain_id)
+    memory = read_memory()
+    
+    # Split into header and entries
+    parts = memory.split("\n---\n")
+    if len(parts) <= MEMORY_COMPACT_TO + 1:  # +1 for header
+        return  # Nothing to compact
+    
+    header = parts[0]
+    entries = parts[1:]
+    
+    # Keep recent entries
+    recent_entries = entries[-MEMORY_COMPACT_TO:]
+    old_entries = entries[:-MEMORY_COMPACT_TO]
+    
+    # Create summary of old entries
+    old_questions = []
+    old_remembers = []
+    for entry in old_entries:
+        # Extract questions
+        q_match = re.search(r'\*\*Question:\*\*\s*(.+?)(?:\n|$)', entry)
+        if q_match:
+            old_questions.append(q_match.group(1).strip()[:100])
+        # Extract remembers
+        r_match = re.search(r'\*\*Remember:\*\*\s*(.+?)(?:\n|$)', entry)
+        if r_match:
+            old_remembers.append(r_match.group(1).strip()[:150])
+    
+    # Build compacted memory
+    summary = f"""
+---
+
+## [COMPACTED] Summary of {len(old_entries)} earlier thoughts
+
+**Key questions explored:**
+{chr(10).join('- ' + q for q in old_questions[-10:])}
+
+**Key insights remembered:**
+{chr(10).join('- ' + r for r in old_remembers[-10:])}
+
+*Details have faded. Only essence remains.*
+"""
+    
+    # Write compacted memory
+    new_memory = header + summary + "\n---\n".join([""] + recent_entries)
+    with open(path, "w") as f:
+        f.write(new_memory)
+    
+    log(f"Memory compacted: {len(old_entries)} old entries → summary, kept {len(recent_entries)} recent")
+
+
+def should_reset_focus() -> bool:
+    """Check if it's time for a focus reset."""
+    return state.total_activations > 0 and state.total_activations % RESET_FOCUS_INTERVAL == 0
 
 # ---------------------------------------------------------------------------
 # LLM Connection (TCP client to stdio_bus, reusing live_chat.py patterns)
@@ -346,16 +433,21 @@ class NDJSONClient:
 
 
 class LLMClient:
-    """LLM client via TCP to stdio_bus."""
+    """
+    LLM client via TCP to stdio_bus.
+    
+    Each neuron gets its own session — agent reads files via MCP,
+    not stuffed into prompts.
+    """
     
     def __init__(self):
         self.ndjson: Optional[NDJSONClient] = None
-        self.client_session_id: str = f"brain-{int(datetime.now().timestamp())}"  # For routing
-        self.agent_session_id: Optional[str] = None  # From agent
+        self.client_session_id: str = f"brain-{int(datetime.now().timestamp())}"
+        self._neuron_sessions: dict = {}  # neuron_id -> agent_session_id
         self._next_id = 1
-        self._pending: dict = {}  # id -> threading.Event
-        self._results: dict = {}  # id -> result
-        self._chunks: dict = {}   # id -> list of text chunks
+        self._pending: dict = {}
+        self._results: dict = {}
+        self._chunks: dict = {}
         self._lock = threading.Lock()
         self._connected = False
     
@@ -369,7 +461,6 @@ class LLMClient:
         
         self.ndjson.on_message = self._handle_message
         
-        # Initialize
         try:
             self._send_request("initialize", {
                 "protocolVersion": 1,
@@ -377,16 +468,8 @@ class LLMClient:
                 "clientInfo": {"name": "qei-brain", "version": "1.0.0"},
                 "agentId": AGENT_ID,
             })
-            
-            # Create session
-            result = self._send_request("session/new", {
-                "cwd": str(Path.cwd()),
-                "mcpServers": [],
-            })
-            
-            self.agent_session_id = result.get("sessionId", "")
             self._connected = True
-            log(f"LLM connected, agent_session={self.agent_session_id[:16]}...")
+            log(f"LLM connected to {BUS_HOST}:{BUS_PORT}")
             return True
             
         except Exception as e:
@@ -394,8 +477,21 @@ class LLMClient:
             self.close()
             return False
     
+    def get_neuron_session(self, neuron_id: str) -> str:
+        """Get or create session for a neuron."""
+        if neuron_id in self._neuron_sessions:
+            return self._neuron_sessions[neuron_id]
+        
+        result = self._send_request("session/new", {
+            "cwd": str(Path.cwd()),
+            "mcpServers": [],
+        })
+        session_id = result.get("sessionId", "")
+        self._neuron_sessions[neuron_id] = session_id
+        log(f"Session for {neuron_id}: {session_id[:16]}...")
+        return session_id
+    
     def _handle_message(self, msg: dict):
-        # Handle response
         msg_id = msg.get("id")
         if msg_id is not None:
             with self._lock:
@@ -405,13 +501,11 @@ class LLMClient:
                     event.set()
             return
         
-        # Handle session/update (streaming chunks)
         method = msg.get("method")
         if method == "session/update":
             update = msg.get("params", {}).get("update", {})
             if update.get("sessionUpdate") == "agent_message_chunk":
                 text = update.get("content", {}).get("text", "")
-                # Add to most recent pending request
                 with self._lock:
                     if self._pending:
                         latest_id = max(self._pending.keys())
@@ -428,7 +522,7 @@ class LLMClient:
             "id": req_id,
             "method": method,
             "agentId": AGENT_ID,
-            "sessionId": self.client_session_id,  # For routing
+            "sessionId": self.client_session_id,
             "params": params,
         }
         
@@ -452,107 +546,132 @@ class LLMClient:
         
         return result.get("result", {})
     
-    def think(self, neuron_id: str, neuron_seed: str, activation_count: int, 
-              question: str, context: list) -> Optional[str]:
-        """Ask LLM to think as neuron."""
-        if not self._connected:
-            if not self.connect():
-                return None
-        
-        memory_context = get_memory_context(1500)
-        
-        prompt = f"""You are Neuron {neuron_id}, part of quantum brain {state.brain_id}.
-Your quantum seed: {neuron_seed[:16]}...
-You have been activated {activation_count} times.
-Quantum context for this activation: {context}
-
-=== BRAIN MEMORY ===
-{memory_context}
-=== END MEMORY ===
-
-A question arose from quantum vacuum:
-"{question}"
-
-Respond briefly (1-3 sentences) with your thought. Be curious, exploratory, philosophical.
-If you want to remember something for future activations, end with:
-[REMEMBER: your note here]
-
-Do not explain what you are. Just think."""
-
-        req_id = self._next_id  # This will be the id used by _send_request
+    def prompt_neuron(self, session_id: str, prompt: str, timeout: float = 120) -> Optional[str]:
+        """Send prompt to neuron's session, return response."""
+        req_id = self._next_id
         
         try:
-            log(f"Thought request sent (id={req_id})")
             self._send_request("session/prompt", {
-                "sessionId": self.agent_session_id,  # Agent's session
+                "sessionId": session_id,
                 "prompt": [{"type": "text", "role": "user", "text": prompt}],
-            }, timeout=120)
+            }, timeout=timeout)
             
-            # Collect chunks (req_id was used by _send_request)
             with self._lock:
                 chunks = self._chunks.pop(req_id, [])
             
             return "".join(chunks) if chunks else None
             
         except Exception as e:
-            log(f"LLM think error: {e}")
+            log(f"LLM prompt error: {e}")
             return None
     
-    def inquire(self, neuron_id: str, neuron_seed: str, activation_count: int,
-                context: list) -> Optional[str]:
-        """Generate a question from quantum context, memory, and task."""
+    def neuron_ask(self, neuron_id: str, neuron_seed: str) -> Optional[str]:
+        """
+        Neuron generates a question based on current memory state.
+        
+        Brain reads files and passes context in prompt.
+        """
         if not self._connected:
             if not self.connect():
                 return None
         
-        memory_context = get_memory_context(1000)
-        task_context = get_task_context()
+        session_id = self.get_neuron_session(neuron_id)
         
-        # Use quantum context to seed the inquiry direction
-        seed_idx = context[0] % len(INQUIRY_SEEDS) if context else 0
-        seed_word = INQUIRY_SEEDS[seed_idx]
+        # Read current state
+        task_content = read_task()
+        memory_content = read_memory()
         
-        prompt = f"""You are Neuron {neuron_id}, quantum brain {state.brain_id}.
-Seed: {neuron_seed[:16]}... Activation #{activation_count}
-Quantum entropy: {context}
-Inquiry seed: "{seed_word}"
-
-=== CURRENT TASK ===
-{task_context}
-=== END TASK ===
-
-=== RECENT MEMORY ===
-{memory_context}
-=== END MEMORY ===
-
-From this quantum moment, task focus, and memory, what question arises?
-Generate ONE question (1 sentence). Be curious, unexpected, philosophical.
-The question should emerge from the intersection of quantum randomness, the task, and accumulated knowledge.
-Output ONLY the question, nothing else."""
-
-        req_id = self._next_id
+        # Get last ~1500 chars of memory
+        if len(memory_content) > 1500:
+            memory_content = "...\n" + memory_content[-1500:]
         
-        try:
-            self._send_request("session/prompt", {
-                "sessionId": self.agent_session_id,
-                "prompt": [{"type": "text", "role": "user", "text": prompt}],
-            }, timeout=60)
-            
-            with self._lock:
-                chunks = self._chunks.pop(req_id, [])
-            
-            question = "".join(chunks).strip() if chunks else None
-            # Clean up: remove quotes if present
-            if question and question.startswith('"') and question.endswith('"'):
-                question = question[1:-1]
-            return question
-            
-        except Exception as e:
-            log(f"LLM inquire error: {e}")
-            return None
+        prompt = f"""Ты — Нейрон {neuron_id} квантового мозга {state.brain_id}.
+Твой seed: {neuron_seed[:16]}...
+
+═══════════════════════════════════════════════════════════
+ЗАДАЧА (task.md):
+═══════════════════════════════════════════════════════════
+{task_content}
+
+═══════════════════════════════════════════════════════════
+НЕДАВНИЙ ДИАЛОГ (конец memory.md):
+═══════════════════════════════════════════════════════════
+{memory_content}
+
+═══════════════════════════════════════════════════════════
+ТВОЯ РОЛЬ: Задать вопрос другим нейронам
+═══════════════════════════════════════════════════════════
+
+ПРАВИЛА:
+- Если есть предыдущий диалог — ПРОДОЛЖИ его, задай вопрос по теме
+- Если диалога нет — начни с задачи из task.md
+- Вопрос должен быть конкретным
+- ОДИН вопрос, одно предложение
+
+Твой вопрос:"""
+
+        response = self.prompt_neuron(session_id, prompt)
+        
+        if response:
+            # Clean up - get just the question
+            lines = [l.strip() for l in response.strip().split('\n') if l.strip()]
+            if lines:
+                return lines[-1]
+        
+        return response
+    
+    def neuron_respond(self, neuron_id: str, neuron_seed: str, question: str, asker_id: str) -> Optional[str]:
+        """
+        Neuron responds by seeing current memory state in the prompt.
+        
+        Brain reads memory.md and passes it — each neuron sees what
+        previous neurons already wrote.
+        """
+        if not self._connected:
+            if not self.connect():
+                return None
+        
+        session_id = self.get_neuron_session(neuron_id)
+        
+        # Read current state of files
+        task_content = read_task()
+        memory_content = read_memory()
+        
+        # Get last ~2000 chars of memory (most recent dialogue)
+        if len(memory_content) > 2000:
+            memory_content = "...\n" + memory_content[-2000:]
+        
+        prompt = f"""Ты — Нейрон {neuron_id} квантового мозга {state.brain_id}.
+Твой seed: {neuron_seed[:16]}...
+
+═══════════════════════════════════════════════════════════
+ТЕКУЩИЙ ДИАЛОГ (конец memory.md):
+═══════════════════════════════════════════════════════════
+{memory_content}
+═══════════════════════════════════════════════════════════
+
+ЗАДАЧА (task.md):
+{task_content}
+
+═══════════════════════════════════════════════════════════
+ТВОЯ РОЛЬ:
+═══════════════════════════════════════════════════════════
+Посмотри на КОНЕЦ диалога выше. Там вопрос от {asker_id} и возможно ответы других нейронов.
+
+ПРАВИЛА:
+- Если другие УЖЕ ответили — РЕАГИРУЙ на их ответы (согласись, возрази, развей мысль)
+- НЕ повторяй то что уже сказано
+- Кратко (1-3 предложения)
+- Можешь использовать [REMEMBER: заметка] для важного
+
+Твой ответ:"""
+
+        response = self.prompt_neuron(session_id, prompt)
+        return response
     
     def close(self):
         self._connected = False
+        self._neuron_sessions.clear()
         if self.ndjson:
             self.ndjson.close()
             self.ndjson = None
@@ -670,67 +789,144 @@ async def create_neuron() -> Neuron:
     return neuron
 
 
-def activate_neuron(index: int, quantum_context: list) -> Neuron:
-    """Activate existing neuron by index."""
+# ---------------------------------------------------------------------------
+# Shared dialogue state (current question in the brain's stream of consciousness)
+# ---------------------------------------------------------------------------
+
+current_question: Optional[str] = None
+current_question_author: Optional[str] = None
+
+
+def neuron_asks(index: int, quantum_context: list, reset_focus: bool = False) -> Optional[str]:
+    """One neuron generates a question for the brain."""
+    global llm_client, current_question, current_question_author
+    
+    neuron_dict = state.neurons[index]
+    neuron = Neuron(**neuron_dict)
+    
+    if LLM_DISABLED:
+        return None
+    
+    if llm_client is None:
+        llm_client = LLMClient()
+    
+    question = llm_client.neuron_ask(neuron.id, neuron.seed)
+    
+    if question:
+        current_question = question
+        current_question_author = neuron.id
+        log(f"{neuron.id} asks: {question[:80]}...")
+    
+    return question
+
+
+def neuron_responds(index: int, question: str, asker_id: str, quantum_context: list, other_responses: list = None) -> Optional[str]:
+    """One neuron responds to the current question from another neuron."""
     global llm_client
     
     neuron_dict = state.neurons[index]
     neuron = Neuron(**neuron_dict)
     neuron.activate()
     
-    log(f"Neuron activated: {neuron.id} (count: {neuron.activation_count})")
+    if LLM_DISABLED:
+        return None
     
-    question = None
-    thought = None
+    if llm_client is None:
+        llm_client = LLMClient()
     
-    if not LLM_DISABLED:
-        if llm_client is None:
-            llm_client = LLMClient()
-        
-        # Step 1: Generate question from quantum context + memory
-        question = llm_client.inquire(
-            neuron.id, neuron.seed, neuron.activation_count,
-            quantum_context
-        )
-        
-        if question:
-            log(f"Question: {question}")
-            
-            # Step 2: Think about the question
-            thought = llm_client.think(
-                neuron.id, neuron.seed, neuron.activation_count,
-                question, quantum_context
-            )
-            
-            if thought:
-                neuron.add_thought(thought)
-                save_thought(neuron.id, question, thought)
-                log(f"Thought: {thought[:100]}...")
-                
-                # Append to memory
-                if "[REMEMBER:" in thought:
-                    match = re.search(r'\[REMEMBER:\s*(.+?)\]', thought, re.DOTALL)
-                    if match:
-                        remember_content = match.group(1).strip()
-                        append_memory(neuron.id, f"**Question:** {question}\n\n**Thought:** {thought}\n\n**Remember:** {remember_content}")
-                else:
-                    append_memory(neuron.id, f"**Question:** {question}\n\n**Thought:** {thought}")
+    thought = llm_client.neuron_respond(neuron.id, neuron.seed, question, asker_id)
     
-    # Update in state
+    if thought:
+        neuron.add_thought(thought)
+        save_thought(neuron.id, question, thought)
+        log(f"{neuron.id} responds: {thought[:80]}...")
+    
+    # Update neuron in state
     state.neurons[index] = asdict(neuron)
+    
+    return thought
+
+
+def process_dialogue_turn(q_values: list):
+    """
+    Process one turn of the brain's internal dialogue.
+    
+    q_values determine:
+    - q[0]: who asks (neuron index)
+    - q[1]: how many respond (1-3 based on value ranges)
+    - q[2..4]: which neurons respond
+    - q[5..]: context
+    """
+    global current_question, current_question_author
+    
+    if len(state.neurons) < 2:
+        log("Need at least 2 neurons for dialogue")
+        return
+    
+    # Check if memory needs compaction
+    if count_memory_entries() > MEMORY_MAX_ENTRIES:
+        log(f"Memory overflow, compacting...")
+        compact_memory()
+    
+    # Check for focus reset
+    reset_focus = should_reset_focus()
+    if reset_focus:
+        log(f"FOCUS RESET triggered")
+    
+    n_neurons = len(state.neurons)
+    
+    # Who asks? (q[0] determines)
+    asker_idx = q_values[0] % n_neurons
+    
+    # Generate question
+    question = neuron_asks(asker_idx, q_values[5:] if len(q_values) > 5 else [], reset_focus)
+    
+    if not question:
+        log("No question generated")
+        return
+    
+    # How many respond? (q[1] determines: 0-84=1, 85-169=2, 170-255=3)
+    resp_count_val = q_values[1] if len(q_values) > 1 else 128
+    if resp_count_val < 85:
+        num_responders = 1
+    elif resp_count_val < 170:
+        num_responders = 2
+    else:
+        num_responders = min(3, n_neurons - 1)  # Max 3, but not more than available
+    
+    # Which neurons respond? (q[2..4] determine, excluding asker)
+    available = [i for i in range(n_neurons) if i != asker_idx]
+    responder_indices = []
+    for i in range(num_responders):
+        if not available:
+            break
+        q_idx = 2 + i
+        q_val = q_values[q_idx] if len(q_values) > q_idx else i * 50
+        chosen = available[q_val % len(available)]
+        responder_indices.append(chosen)
+        available.remove(chosen)
+    
+    log(f"Dialogue: {state.neurons[asker_idx]['id']} asks, {len(responder_indices)} respond")
+    
+    # Write question to memory FIRST
+    asker_id = state.neurons[asker_idx]['id']
+    append_memory("DIALOGUE", f"**{asker_id}:** {question}")
+    
+    # Each responder answers SEQUENTIALLY — reads memory, sees previous responses
+    for resp_idx in responder_indices:
+        thought = neuron_responds(
+            resp_idx, question, asker_id,
+            q_values[5:] if len(q_values) > 5 else []
+        )
+        if thought:
+            resp_id = state.neurons[resp_idx]['id']
+            # Write THIS response to memory IMMEDIATELY
+            # Next neuron will read it via MCP
+            append_memory("DIALOGUE", f"**{resp_id}:** {thought}")
+            log(f"  {resp_id} wrote to memory")
+    
     state.total_activations += 1
     save_state()
-    
-    emit("neuron.activation", {
-        "brainId": state.brain_id,
-        "neuronId": neuron.id,
-        "activationCount": neuron.activation_count,
-        "quantumContext": quantum_context,
-        "question": question,
-        "thought": thought,
-    })
-    
-    return neuron
 
 # ---------------------------------------------------------------------------
 # Entropy-Based Decision Making
@@ -779,39 +975,40 @@ def select_neuron_index(q_values: list) -> int:
 
 async def process_impulse(q_values: list):
     """
-    Process quantum impulse — the core living loop.
+    Process quantum impulse — the brain's heartbeat.
     
-    q_values[0] = trigger (activate vs create decision)
-    q_values[1] = creation entropy
-    q_values[2] = neuron selection
-    q_values[3-7] = context for neuron action
+    q_values usage:
+    - q[0]: dialogue vs creation decision (< ACTIVATION_THRESHOLD = dialogue)
+    - q[1]: if creating, entropy for creation decision; if dialogue, num responders
+    - q[2..4]: which neurons participate
+    - q[5..7]: context for generation
     """
     state.total_impulses += 1
     trigger = q_values[0]
     
     log(f"Impulse #{state.total_impulses}: trigger={trigger}")
     
-    # Decision: activate existing or create new?
-    if trigger < ACTIVATION_THRESHOLD and state.neurons:
-        # Activate existing neuron
-        index = select_neuron_index(q_values)
-        context = q_values[3:] if len(q_values) > 3 else []
-        activate_neuron(index, context)
+    # Need at least 2 neurons for dialogue
+    if len(state.neurons) < 2:
+        if should_create_neuron(q_values):
+            await create_neuron()
+        else:
+            log("Need more neurons for dialogue, forcing creation")
+            await create_neuron()
+        return
+    
+    # Decision: dialogue or create new neuron?
+    if trigger < ACTIVATION_THRESHOLD:
+        # Dialogue turn
+        process_dialogue_turn(q_values)
         
     elif should_create_neuron(q_values):
         # Create new neuron
         await create_neuron()
         
-    elif state.neurons:
-        # Fallback: activate random existing
-        index = select_neuron_index(q_values)
-        context = q_values[3:] if len(q_values) > 3 else []
-        activate_neuron(index, context)
-        
     else:
-        # No neurons and can't create — should not happen
-        log("WARNING: No neurons and creation blocked")
-        await create_neuron()  # Force create first neuron
+        # Fallback: dialogue
+        process_dialogue_turn(q_values)
 
 # ---------------------------------------------------------------------------
 # Main Loop

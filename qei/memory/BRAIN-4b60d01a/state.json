@@ -1,0 +1,34 @@
+{
+  "brain_id": "BRAIN-4b60d01a",
+  "brain_seed": "4b60d01ac3eb2a91d8be7f26928d4585465b281b5a88629fc20075f41b303027",
+  "birth_time": "2026-03-11T14:42:49.727007",
+  "neurons": [
+    {
+      "id": "N-06acef12",
+      "seed": "06acef12c3e50cae3a2c59cd2ac1857bb8293182748d9a8b60625b08d9f88ae9",
+      "birth_time": "2026-03-11T14:42:51.087586",
+      "activation_count": 0,
+      "last_activation": null,
+      "thoughts": []
+    },
+    {
+      "id": "N-2b930f3e",
+      "seed": "2b930f3eb3900123ed1abb0dd9bcedff457e75a4fe6df4d097c313f9e1fcab5c",
+      "birth_time": "2026-03-11T14:42:57.125482",
+      "activation_count": 0,
+      "last_activation": null,
+      "thoughts": []
+    },
+    {
+      "id": "N-38fa95f9",
+      "seed": "38fa95f9eefefef7830b649b9c328693ec6c22728328aab6725c23910e2cb3a3",
+      "birth_time": "2026-03-11T14:44:03.649358",
+      "activation_count": 0,
+      "last_activation": null,
+      "thoughts": []
+    }
+  ],
+  "total_impulses": 15,
+  "total_activations": 0,
+  "total_creations": 3
+}

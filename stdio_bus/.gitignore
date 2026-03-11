@@ -5,7 +5,8 @@ stdio_bus
 
 # Optional
 *.md
-*.json
+api-keys.json
+openai-agents.json
 !package.json
 
 

@@ -1,0 +1,29 @@
+{
+  "pools": [
+    {
+      "id": "acp-worker",
+      "command": "npx",
+      "args": [
+        "@stdiobus/workers-registry",
+        "acp-registry",
+        "--custom-agents",
+        "./openai-agents.json"
+      ],
+      "env": {},
+      "instances": 1
+    },
+    {
+      "id": "swarm",
+      "command": "uv",
+      "args": [
+        "run",
+        "swarm.py"
+      ],
+      "env": {
+        "DEVICE_BACKEND": "mps"
+      },
+      "instances": 1,
+      "cwd": "../../"
+    }
+  ]
+}

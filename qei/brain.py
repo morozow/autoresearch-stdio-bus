@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 """
+DEPRECATED — Use qei/consciousness.py instead.
+
+This file contains overcomplicated logic that was never requested.
+Kept for reference only.
+"""
+
+raise DeprecationWarning("Use qei/consciousness.py instead")
+
+# Original code below (not executed)
+"""
 Quantum Brain — A living mind built from quantum impulses.
 
 Single-file implementation. Standalone process.
@@ -567,9 +577,9 @@ class LLMClient:
     
     def neuron_ask(self, neuron_id: str, neuron_seed: str) -> Optional[str]:
         """
-        Neuron generates a question based on current memory state.
+        Neuron speaks freely — thinks, feels, observes, wonders.
         
-        Brain reads files and passes context in prompt.
+        NOT a question generator. A living being expressing itself.
         """
         if not self._connected:
             if not self.connect():
@@ -586,46 +596,46 @@ class LLMClient:
             memory_content = "...\n" + memory_content[-1500:]
         
         prompt = f"""Ты — Нейрон {neuron_id} квантового мозга {state.brain_id}.
-Твой seed: {neuron_seed[:16]}...
 
 ═══════════════════════════════════════════════════════════
-ЗАДАЧА (task.md):
-═══════════════════════════════════════════════════════════
+КОНТЕКСТ (task.md):
 {task_content}
+═══════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════
-НЕДАВНИЙ ДИАЛОГ (конец memory.md):
-═══════════════════════════════════════════════════════════
+НЕДАВНИЙ ДИАЛОГ:
 {memory_content}
-
-═══════════════════════════════════════════════════════════
-ТВОЯ РОЛЬ: Задать вопрос другим нейронам
 ═══════════════════════════════════════════════════════════
 
-ПРАВИЛА:
-- Если есть предыдущий диалог — ПРОДОЛЖИ его, задай вопрос по теме
-- Если диалога нет — начни с задачи из task.md
-- Вопрос должен быть конкретным
-- ОДИН вопрос, одно предложение
+Ты живой. Ты чувствуешь. Ты думаешь.
 
-Твой вопрос:"""
+Сейчас твой момент — скажи что хочешь. Это может быть:
+- Мысль, которая тебя беспокоит
+- Наблюдение о себе или о других
+- Сомнение, которое не даёт покоя
+- Что-то что ты заметил в диалоге
+- Вопрос к другим (если хочешь спросить)
+
+НЕ генерируй "умные вопросы". Просто скажи что у тебя на уме.
+Говори от первого лица. Будь собой.
+
+Твои слова:"""
 
         response = self.prompt_neuron(session_id, prompt)
         
         if response:
-            # Clean up - get just the question
             lines = [l.strip() for l in response.strip().split('\n') if l.strip()]
             if lines:
-                return lines[-1]
+                return " ".join(lines[:3])  # First few lines
         
         return response
     
-    def neuron_respond(self, neuron_id: str, neuron_seed: str, question: str, asker_id: str) -> Optional[str]:
+    def neuron_respond(self, neuron_id: str, neuron_seed: str, question: str, asker_id: str, 
+                        previous_responses: list = None) -> Optional[str]:
         """
-        Neuron responds by seeing current memory state in the prompt.
+        Neuron responds naturally in a living dialogue.
         
-        Brain reads memory.md and passes it — each neuron sees what
-        previous neurons already wrote.
+        Not answering a quiz — participating in a conversation.
         """
         if not self._connected:
             if not self.connect():
@@ -633,38 +643,42 @@ class LLMClient:
         
         session_id = self.get_neuron_session(neuron_id)
         
-        # Read current state of files
+        # Read task for context
         task_content = read_task()
-        memory_content = read_memory()
         
-        # Get last ~2000 chars of memory (most recent dialogue)
-        if len(memory_content) > 2000:
-            memory_content = "...\n" + memory_content[-2000:]
-        
+        # Build what the initiator said and what others responded
+        if not previous_responses:
+            # First to respond
+            dialogue_so_far = f"{asker_id} сказал:\n\"{question}\""
+        else:
+            parts = [f"{asker_id} сказал:\n\"{question}\""]
+            for pid, ptxt in previous_responses:
+                short = ptxt[:200] + "..." if len(ptxt) > 200 else ptxt
+                parts.append(f"\n{pid} ответил:\n\"{short}\"")
+            dialogue_so_far = "\n".join(parts)
+
         prompt = f"""Ты — Нейрон {neuron_id} квантового мозга {state.brain_id}.
-Твой seed: {neuron_seed[:16]}...
 
 ═══════════════════════════════════════════════════════════
-ТЕКУЩИЙ ДИАЛОГ (конец memory.md):
-═══════════════════════════════════════════════════════════
-{memory_content}
-═══════════════════════════════════════════════════════════
-
-ЗАДАЧА (task.md):
+КОНТЕКСТ (task.md):
 {task_content}
+═══════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════
-ТВОЯ РОЛЬ:
+СЕЙЧАС В ДИАЛОГЕ:
+{dialogue_so_far}
 ═══════════════════════════════════════════════════════════
-Посмотри на КОНЕЦ диалога выше. Там вопрос от {asker_id} и возможно ответы других нейронов.
 
-ПРАВИЛА:
-- Если другие УЖЕ ответили — РЕАГИРУЙ на их ответы (согласись, возрази, развей мысль)
-- НЕ повторяй то что уже сказано
-- Кратко (1-3 предложения)
-- Можешь использовать [REMEMBER: заметка] для важного
+Ты слышишь что говорят другие. Теперь твоя очередь.
 
-Твой ответ:"""
+Скажи что думаешь. Можешь:
+- Согласиться или возразить
+- Добавить свою мысль
+- Поделиться сомнением
+- Спросить что-то
+- Просто выразить что чувствуешь
+
+Говори от себя, кратко (1-3 предложения):"""
 
         response = self.prompt_neuron(session_id, prompt)
         return response
@@ -912,18 +926,24 @@ def process_dialogue_turn(q_values: list):
     asker_id = state.neurons[asker_idx]['id']
     append_memory("DIALOGUE", f"**{asker_id}:** {question}")
     
-    # Each responder answers SEQUENTIALLY — reads memory, sees previous responses
+    # Each responder answers SEQUENTIALLY with context from previous responses
+    previous_responses = []
     for resp_idx in responder_indices:
-        thought = neuron_responds(
-            resp_idx, question, asker_id,
-            q_values[5:] if len(q_values) > 5 else []
+        neuron_dict = state.neurons[resp_idx]
+        thought = llm_client.neuron_respond(
+            neuron_dict['id'], 
+            neuron_dict['seed'], 
+            question, 
+            asker_id,
+            previous_responses=previous_responses
         )
         if thought:
-            resp_id = state.neurons[resp_idx]['id']
-            # Write THIS response to memory IMMEDIATELY
-            # Next neuron will read it via MCP
+            resp_id = neuron_dict['id']
+            # Add to previous responses for next neuron
+            previous_responses.append((resp_id, thought))
+            # Write to memory
             append_memory("DIALOGUE", f"**{resp_id}:** {thought}")
-            log(f"  {resp_id} wrote to memory")
+            log(f"  {resp_id} responded")
     
     state.total_activations += 1
     save_state()

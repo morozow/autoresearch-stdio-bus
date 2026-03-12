@@ -24,6 +24,7 @@ AGENTS.md
 # Experimental code/artifacts
 dev/
 .kiro
+.idea
 qei/memory/
 
 # Results file

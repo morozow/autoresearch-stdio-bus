@@ -13,7 +13,7 @@
           ],
           "env": {
             "OPENAI_BASE_URL": "https://bedrock-mantle.us-east-1.api.aws/v1",
-            "OPENAI_MODEL": "openai.gpt-oss-120b",
+            "OPENAI_MODEL": "openai.gpt-oss-20b",
             "OPENAI_API_KEY": "",
             "AWS_BEARER_TOKEN_BEDROCK": ""
           }

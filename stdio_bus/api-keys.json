@@ -1,0 +1,111 @@
+{
+  "agents": {
+    "openai": {
+      "apiKey": "",
+      "env": {}
+    },
+    "auggie": {
+      "apiKey": "",
+      "env": {
+        "AUGMENT_DISABLE_AUTO_UPDATE": "1",
+        "AUGMENT_SKIP_WORKSPACE_INDEX": "1"
+      }
+    },
+    "autohand": {
+      "apiKey": "",
+      "env": {}
+    },
+    "claude-acp": {
+      "apiKey": "",
+      "env": {}
+    },
+    "goose": {
+      "apiKey": "",
+      "env": {}
+    },
+    "junie": {
+      "apiKey": "",
+      "env": {}
+    },
+    "kilo": {
+      "apiKey": "",
+      "env": {}
+    },
+    "cline": {
+      "apiKey": "",
+      "env": {}
+    },
+    "codebuddy-code": {
+      "apiKey": "",
+      "env": {}
+    },
+    "codex-acp": {
+      "apiKey": "",
+      "env": {}
+    },
+    "corust-agent": {
+      "apiKey": "",
+      "env": {}
+    },
+    "factory-droid": {
+      "apiKey": "",
+      "env": {
+        "DROID_DISABLE_AUTO_UPDATE": "true",
+        "FACTORY_DROID_AUTO_UPDATE_ENABLED": "false"
+      }
+    },
+    "gemini": {
+      "apiKey": "",
+      "env": {}
+    },
+    "github-copilot": {
+      "apiKey": "",
+      "env": {}
+    },
+    "goose": {
+      "apiKey": "",
+      "env": {}
+    },
+    "junie": {
+      "apiKey": "",
+      "env": {}
+    },
+    "kilo": {
+      "apiKey": "",
+      "env": {}
+    },
+    "kimi": {
+      "apiKey": "",
+      "env": {}
+    },
+    "minion-code": {
+      "apiKey": "",
+      "env": {}
+    },
+    "mistral-vibe": {
+      "apiKey": "",
+      "env": {}
+    },
+    "opencode": {
+      "apiKey": "",
+      "env": {}
+    },
+    "pi-acp": {
+      "apiKey": "",
+      "env": {}
+    },
+    "qoder": {
+      "apiKey": "",
+      "env": {}
+    },
+    "qwen-code": {
+      "apiKey": "",
+      "env": {}
+    },
+    "stakpak": {
+      "apiKey": "",
+      "env": {}
+    }
+  },
+  "version": "1.0.0"
+}

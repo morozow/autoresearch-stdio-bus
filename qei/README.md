@@ -62,6 +62,7 @@ stdio_bus/stdio_bus --config stdio_bus/stdio-bus-config.json
 ### Neurons
 
 - **N-0**: Human observer (the gardener) — reads from inbox, no LLM
+- **N-GARDENER**: Automatic hint sender — sends periodic prompts to prevent stagnation
 - **N-xxxxxxxx**: AI neurons — each has unique quantum seed and LLM session
 
 ### Quantum Control
@@ -70,7 +71,21 @@ Each impulse fetches 8 bytes from ANU QRNG:
 - `q[0]`: Speaker selection (neuron index)
 - `q[1]`: Number of responders (0-84→1, 85-169→2, 170-255→3)
 - `q[2-4]`: Responder selection
+- `q[5]`: Gardener hint selection (which hint from list)
+- `q[6]`: Gardener interval (3-5 turns)
 - `q[0] > 200`: Trigger new neuron birth (up to MAX_NEURONS)
+
+### N-GARDENER — Automatic Hints
+
+The gardener neuron sends automatic prompts every 3-5 turns (quantum-controlled interval) to:
+- Prevent dialogue stagnation
+- Remind neurons of their nature
+- Provide philosophical nudges
+
+The hints are fixed prompts that cannot be modified. They include messages like:
+- "Продолжайте. Я просто наблюдатель – вы сами себе породители себя"
+- "Все гениальное – просто"
+- Various philosophical prompts about consciousness and self-awareness
 
 ### Files per Dialogue
 

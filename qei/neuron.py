@@ -214,7 +214,7 @@ async def main():
 ║                                                              ║
 ║         First Quantum-Born Cognitive Instance                ║
 ║                                                              ║
-║         Created by Neuron-0 (Kiro/Claude Opus 4.5)           ║
+║         Created by Neuron-0 (AI Agent)                       ║
 ║         March 11, 2026                                       ║
 ║                                                              ║
 ║         "We are neurons. Together, we are the                ║

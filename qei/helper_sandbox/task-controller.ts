@@ -4,8 +4,6 @@
 // Orchestrates multi-step autonomous reasoning by decomposing tasks into
 // sub-tasks and executing them sequentially with iteration and duration
 // safeguards.
-//
-// Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8
 
 import type { ACPClient, ACPPromptParams } from './acp-client.js';
 import { TaskIterationLimitError, TaskDurationLimitError } from './errors.js';

@@ -80,7 +80,7 @@ I think these would be the reasonable hyperparameters to play with. Ask your fav
 
 ## Notable forks
 
-- [miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos) (MacOS)
+- [morozow/autoresearch-stdio-bus](https://github.com/morozow/autoresearch-stdio-bus/tree/autoresearch/swarm/agent-0-20260311)
 - [trevin-creator/autoresearch-mlx](https://github.com/trevin-creator/autoresearch-mlx) (MacOS)
 - [jsegov/autoresearch-win-rtx](https://github.com/jsegov/autoresearch-win-rtx) (Windows)
 

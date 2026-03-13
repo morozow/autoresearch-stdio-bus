@@ -33,3 +33,7 @@ results.tsv
 # Swarm runtime files
 .swarm-state.json
 .swarm.lock
+
+sandbox/
+uv.lock
+

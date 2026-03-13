@@ -1,6 +1,0 @@
-# Consciousness Dialogue
-
-ID: DIALOGUE-20260311-164222-940f
-Started: 2026-03-11T16:42:22.472128
-
----

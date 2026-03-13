@@ -158,3 +158,13 @@ DEVICE_BACKEND=mps uv run train.py
 | `mps` | Apple Silicon | SDPA fallback | float16 |
 
 Note: Results between backends may differ slightly due to different attention implementations and precision.
+
+---
+
+## AGENTS.md Generation
+
+To generate `AGENTS.md` for AI coding agents working in this repository, use the prompt template:
+
+**[AGENTS.md.prompt.md](https://github.com/worktif/prompts/blob/main/engineering/agents/AGENTS.md.prompt.md)**
+
+This covers all requirements for agent instructions, safety constraints, and workflow rules.

@@ -117,7 +117,7 @@ FINAL_LR_FRAC = 0.0          # decay to 0
 
 # Training
 # MPS: small batch (4K tokens), CUDA: large batch (512K tokens)
-TOTAL_BATCH_SIZE = 2**13 if IS_MPS else 2**19  # tokens per step (8K on MPS)
+TOTAL_BATCH_SIZE = 2**12 if IS_MPS else 2**19  # tokens per step
 SOFTCAP = 15                 # logit softcap value
 EMA_BETA = 0.95              # EMA for loss smoothing
 

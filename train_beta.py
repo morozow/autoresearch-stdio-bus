@@ -17,15 +17,20 @@ Implements:
 13. Cautious Weight Decay
 14. LR schedules (warmup, warmdown, momentum warmup, WD decay)
 15. Special weight initialization
-16. Meta device initialization
-17. Flash Attention 3
+16. Meta device initialization (CUDA) / direct initialization (MPS)
+17. Flash Attention 3 (CUDA) / SDPA fallback (MPS)
 18. GQA support
 19. Time-based training (5 minutes)
 20. Fast fail at loss > 100
 21. Prefetch, GC freeze, and other optimizations
 
+Supports: CUDA (NVIDIA GPU), MPS (Apple Silicon), CPU fallback.
+Device auto-detected from DEVICE_BACKEND env var (default: cuda on Linux, mps on macOS).
+
 Usage:
-    uv run train_beta.py
+    uv run train_beta.py                    # auto-detect device
+    DEVICE_BACKEND=mps uv run train_beta.py # force MPS
+    DEVICE_BACKEND=cuda uv run train_beta.py # force CUDA
 """
 
 import os
@@ -52,11 +57,21 @@ from prepare import (
 )
 
 # ---------------------------------------------------------------------------
-# Flash Attention 3 setup
+# Device capability flags
+# ---------------------------------------------------------------------------
+
+IS_CUDA = DEVICE_BACKEND == "cuda"
+IS_MPS = DEVICE_BACKEND == "mps"
+USE_COMPILE = IS_CUDA  # torch.compile not supported on MPS
+
+# ---------------------------------------------------------------------------
+# Flash Attention 3 setup (CUDA only)
 # ---------------------------------------------------------------------------
 
 def get_flash_attention():
-    """Get Flash Attention 3 based on GPU capability."""
+    """Get Flash Attention 3 based on GPU capability. Returns None on non-CUDA."""
+    if not IS_CUDA:
+        return None
     try:
         from kernels import get_kernel
         cap = torch.cuda.get_device_capability()
@@ -69,7 +84,7 @@ def get_flash_attention():
         print(f"Warning: Flash Attention 3 not available: {e}", file=sys.stderr)
         return None
 
-FA3 = get_flash_attention() if DEVICE_BACKEND == "cuda" else None
+FA3 = get_flash_attention()
 
 # ---------------------------------------------------------------------------
 # Constants and Hyperparameters
@@ -490,8 +505,14 @@ class GPT(nn.Module):
 # MuonAdamW Optimizer
 # ---------------------------------------------------------------------------
 
+def _maybe_compile(fn):
+    """Apply torch.compile only on CUDA where it's supported."""
+    if USE_COMPILE:
+        return torch.compile(dynamic=False, fullgraph=True)(fn)
+    return fn
 
-@torch.compile(dynamic=False, fullgraph=True)
+
+@_maybe_compile
 def adamw_step_fused(
     p: Tensor,
     grad: Tensor,
@@ -524,7 +545,7 @@ def adamw_step_fused(
     p.add_(exp_avg / denom, alpha=-step_size)
 
 
-@torch.compile(dynamic=False, fullgraph=True)
+@_maybe_compile
 def muon_step_fused(
     stacked_params: Tensor,
     stacked_grads: Tensor,
@@ -550,7 +571,9 @@ def muon_step_fused(
     orig_norm = g.norm(dim=(-2, -1), keepdim=True)
     
     # 2. Polar Express orthogonalization
-    X = g.bfloat16()
+    # CUDA: bfloat16 for speed; MPS/CPU: float32 (no bf16 support)
+    polar_dtype = torch.bfloat16 if g.device.type == "cuda" else torch.float32
+    X = g.to(polar_dtype)
     X = X / (X.norm(dim=(-2, -1), keepdim=True) * 1.02 + 1e-6)
     
     for i in range(ns_steps):
@@ -810,6 +833,8 @@ def train():
     """Main training function."""
     device = torch.device(DEVICE_BACKEND)
     
+    print(f"Device backend: {DEVICE_BACKEND}", file=sys.stderr, flush=True)
+    
     # Load tokenizer
     print("Loading tokenizer...", file=sys.stderr, flush=True)
     tokenizer = Tokenizer.from_directory()
@@ -821,20 +846,29 @@ def train():
     
     print(f"Model config: n_layer={config.n_layer}, n_embd={config.n_embd}, n_head={config.n_head}", file=sys.stderr, flush=True)
     
-    # Create model with meta device initialization
+    # Create model
+    # CUDA: meta device init + to_empty (fast, avoids double allocation)
+    # MPS/CPU: direct init (meta device to_empty not reliably supported on MPS)
     print("Creating model...", file=sys.stderr, flush=True)
-    with torch.device("meta"):
+    if IS_CUDA:
+        with torch.device("meta"):
+            model = GPT(config)
+        model.to_empty(device=device)
+    else:
         model = GPT(config)
-    model.to_empty(device=device)
+        model.to(device)
     model.init_weights()
     
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params / 1e6:.1f}M", file=sys.stderr, flush=True)
     
-    # Compile model
-    print("Compiling model...", file=sys.stderr, flush=True)
-    model = torch.compile(model)
+    # Compile model (CUDA only — MPS does not support torch.compile)
+    if USE_COMPILE:
+        print("Compiling model...", file=sys.stderr, flush=True)
+        model = torch.compile(model)
+    else:
+        print("Skipping torch.compile (not supported on this backend)", file=sys.stderr, flush=True)
     
     # Build optimizer
     param_groups = build_param_groups(model)
@@ -858,11 +892,13 @@ def train():
     total_training_time = 0.0
     smooth_train_loss = 0.0
     
-    # Autocast context
-    if DEVICE_BACKEND == "cuda":
+    # Autocast context — dtype per backend
+    if IS_CUDA:
         autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
-    else:
+    elif IS_MPS:
         autocast_ctx = torch.amp.autocast(device_type="mps", dtype=torch.float16)
+    else:
+        autocast_ctx = torch.amp.autocast(device_type="cpu", enabled=False)
     
     print("Starting training...", file=sys.stderr, flush=True)
     print(f"Time budget: {TIME_BUDGET}s", file=sys.stderr, flush=True)
@@ -912,7 +948,8 @@ def train():
         # GC management
         if step == 0:
             gc.collect()
-            gc.freeze()
+            if hasattr(gc, "freeze"):
+                gc.freeze()
             gc.disable()
         elif step % 5000 == 0:
             gc.enable()
@@ -931,7 +968,8 @@ def train():
         if step % 10 == 0:
             # MFU calculation
             tokens_per_step = TOTAL_BATCH_SIZE
-            flops_per_token = model._orig_mod.estimate_flops() if hasattr(model, '_orig_mod') else 0
+            raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+            flops_per_token = raw_model.estimate_flops()
             mfu = 100 * flops_per_token * tokens_per_step / dt / H100_BF16_PEAK_FLOPS if dt > 0 else 0
             
             timestamp = time.strftime("%H:%M:%S")
@@ -953,10 +991,10 @@ def train():
     val_bpb = evaluate_bpb(eval_model, tokenizer, micro_batch_size)
     
     # Get peak VRAM
-    if DEVICE_BACKEND == "cuda":
+    if IS_CUDA:
         peak_vram_mb = torch.cuda.max_memory_allocated() / 1024 / 1024
     else:
-        peak_vram_mb = 0.0  # MPS doesn't have this API
+        peak_vram_mb = 0.0  # MPS/CPU don't expose this API
     
     # Calculate total tokens
     total_tokens = step * TOTAL_BATCH_SIZE

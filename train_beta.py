@@ -1022,7 +1022,29 @@ def train():
     
     # Use original model for evaluation if compiled
     eval_model = model._orig_mod if hasattr(model, '_orig_mod') else model
-    val_bpb = evaluate_bpb(eval_model, tokenizer, micro_batch_size)
+    
+    # MPS: use fewer eval tokens to avoid hanging (64 steps vs 5120)
+    if IS_MPS:
+        from prepare import get_token_bytes
+        eval_steps_mps = 64  # ~260K tokens, ~1.5 min eval
+        token_bytes = get_token_bytes(device=DEVICE_BACKEND)
+        val_loader = make_dataloader(tokenizer, micro_batch_size, MAX_SEQ_LEN, "val")
+        total_nats = 0.0
+        total_bytes = 0
+        with torch.no_grad():
+            for i in range(eval_steps_mps):
+                x, y, _ = next(val_loader)
+                loss_flat = eval_model(x, y, reduction='none').view(-1)
+                y_flat = y.view(-1)
+                nbytes = token_bytes[y_flat]
+                mask = nbytes > 0
+                total_nats += (loss_flat * mask).sum().item()
+                total_bytes += nbytes.sum().item()
+                if (i + 1) % 16 == 0:
+                    print(f"  eval step {i+1}/{eval_steps_mps}", file=sys.stderr, flush=True)
+        val_bpb = total_nats / (math.log(2) * total_bytes)
+    else:
+        val_bpb = evaluate_bpb(eval_model, tokenizer, micro_batch_size)
     
     # Get peak VRAM
     if IS_CUDA:

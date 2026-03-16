@@ -91,7 +91,7 @@ FA3 = get_flash_attention()
 # ---------------------------------------------------------------------------
 
 # Architecture
-DEPTH = 8                    # number of transformer layers
+DEPTH = 10                   # number of transformer layers
 ASPECT_RATIO = 64            # model_dim = depth * aspect_ratio (rounded to HEAD_DIM)
 HEAD_DIM = 128               # dimension per attention head
 WINDOW_PATTERN = "SSSL"      # Short-Short-Short-Long sliding window pattern

@@ -116,7 +116,8 @@ WARMDOWN_RATIO = 0.5         # last 50% is linear decay
 FINAL_LR_FRAC = 0.0          # decay to 0
 
 # Training
-TOTAL_BATCH_SIZE = 64 * MAX_SEQ_LEN  # tokens per step
+# MPS: small batch (4K tokens), CUDA: large batch (512K tokens)
+TOTAL_BATCH_SIZE = 2**12 if IS_MPS else 2**19  # tokens per step
 SOFTCAP = 15                 # logit softcap value
 EMA_BETA = 0.95              # EMA for loss smoothing
 
@@ -188,7 +189,8 @@ def precompute_rotary_emb(seq_len: int, head_dim: int, device: torch.device) -> 
     angles = positions.unsqueeze(1) * theta.unsqueeze(0)  # [seq_len, d]
     cos = angles.cos()
     sin = angles.sin()
-    return cos, sin
+    # Shape: [1, seq_len, 1, d] for correct broadcasting with [B, T, H, d]
+    return cos[None, :, None, :], sin[None, :, None, :]
 
 
 def apply_rotary_emb(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
@@ -249,8 +251,8 @@ class CausalSelfAttention(nn.Module):
         q, k = norm(q), norm(k)
         
         # Apply RoPE
-        q = apply_rotary_emb(q, cos[:T], sin[:T])
-        k = apply_rotary_emb(k, cos[:T], sin[:T])
+        q = apply_rotary_emb(q, cos[:, :T], sin[:, :T])
+        k = apply_rotary_emb(k, cos[:, :T], sin[:, :T])
         
         # Add Value Embeddings if present
         if ve is not None and self.has_ve:
@@ -281,13 +283,14 @@ class CausalSelfAttention(nn.Module):
             y = y.view(B, T, -1)
         else:
             # SDPA with optional sliding window
-            if window_size[0] > 0:
-                # Create sliding window mask
+            if window_size[0] > 0 and IS_CUDA:
+                # Create sliding window mask (CUDA only — MPS OOMs on explicit masks)
                 mask = torch.ones(T, T, dtype=torch.bool, device=x.device).tril()
                 window_mask = torch.ones(T, T, dtype=torch.bool, device=x.device).triu(-window_size[0] + 1)
                 mask = mask & window_mask
                 y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
             else:
+                # MPS / full attention: use is_causal=True (no explicit mask)
                 y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
             y = y.transpose(1, 2).contiguous().view(B, T, -1)
         
@@ -526,22 +529,30 @@ def adamw_step_fused(
     wd_t: Tensor,
 ):
     """Fused AdamW step."""
+    # Extract scalar values (avoids CPU/MPS device mismatch in lerp_)
+    lr = lr_t.item()
+    beta1 = beta1_t.item()
+    beta2 = beta2_t.item()
+    eps = eps_t.item()
+    wd = wd_t.item()
+    step = step_t.item()
+
     # Weight decay
-    p.mul_(1 - lr_t * wd_t)
+    p.mul_(1 - lr * wd)
     
     # Momentum (m)
-    exp_avg.lerp_(grad, 1 - beta1_t)
+    exp_avg.lerp_(grad, 1 - beta1)
     
     # Variance (v)
-    exp_avg_sq.lerp_(grad.square(), 1 - beta2_t)
+    exp_avg_sq.lerp_(grad.square(), 1 - beta2)
     
     # Bias correction
-    bias1 = 1 - beta1_t ** step_t
-    bias2 = 1 - beta2_t ** step_t
+    bias1 = 1 - beta1 ** step
+    bias2 = 1 - beta2 ** step
     
     # Update
-    denom = (exp_avg_sq / bias2).sqrt() + eps_t
-    step_size = lr_t / bias1
+    denom = (exp_avg_sq / bias2).sqrt() + eps
+    step_size = lr / bias1
     p.add_(exp_avg / denom, alpha=-step_size)
 
 
@@ -551,16 +562,22 @@ def muon_step_fused(
     stacked_grads: Tensor,
     momentum_buffer: Tensor,
     second_momentum_buffer: Tensor,
-    momentum: Tensor,
-    beta2: Tensor,
-    lr: Tensor,
-    wd: Tensor,
+    momentum_t: Tensor,
+    beta2_t: Tensor,
+    lr_t: Tensor,
+    wd_t: Tensor,
     ns_steps: int,
     shape: Tuple[int, ...],
     red_dim: int,
     polar_coeffs: List[Tuple[float, float, float]],
 ):
     """Fused Muon step with Polar Express orthogonalization and NorMuon."""
+    # Extract scalar values (avoids CPU/MPS device mismatch)
+    momentum = momentum_t.item()
+    beta2 = beta2_t.item()
+    lr = lr_t.item()
+    wd = wd_t.item()
+
     num_params = stacked_params.size(0)
     
     # 1. Nesterov momentum
@@ -658,17 +675,18 @@ class MuonAdamW:
     
     def step(self):
         """Perform optimization step."""
-        self._step += 1
-        
-        for group in self.param_groups:
-            kind = group["kind"]
-            lr = group["lr"]
-            wd = group.get("weight_decay", 0.0)
+        with torch.no_grad():
+            self._step += 1
             
-            if kind == "adamw":
-                self._step_adamw(group, lr, wd)
-            elif kind == "muon":
-                self._step_muon(group, lr, wd)
+            for group in self.param_groups:
+                kind = group["kind"]
+                lr = group["lr"]
+                wd = group.get("weight_decay", 0.0)
+                
+                if kind == "adamw":
+                    self._step_adamw(group, lr, wd)
+                elif kind == "muon":
+                    self._step_muon(group, lr, wd)
     
     def _step_adamw(self, group: Dict[str, Any], lr: float, wd: float):
         """AdamW step for a parameter group."""
@@ -812,16 +830,29 @@ def build_param_groups(model: GPT) -> List[Dict[str, Any]]:
         if block.attn.has_ve:
             muon_params.append(block.attn.ve_gate.weight)
     
-    param_groups = [
-        # AdamW groups
-        dict(kind='adamw', params=lm_head_params, lr=LM_HEAD_LR * scale, initial_lr=LM_HEAD_LR * scale),
-        dict(kind='adamw', params=embedding_params, lr=EMBEDDING_LR * scale, initial_lr=EMBEDDING_LR * scale),
-        dict(kind='adamw', params=value_embeds_params, lr=EMBEDDING_LR * scale, initial_lr=EMBEDDING_LR * scale),
-        dict(kind='adamw', params=resid_params, lr=RESID_LAMBDA_LR, initial_lr=RESID_LAMBDA_LR),
-        dict(kind='adamw', params=x0_params, lr=X0_LAMBDA_LR, initial_lr=X0_LAMBDA_LR, betas=X0_BETAS),
-        # Muon group
-        dict(kind='muon', params=muon_params, lr=MATRIX_LR, initial_lr=MATRIX_LR, momentum=MUON_MOMENTUM, ns_steps=MUON_NS_STEPS),
-    ]
+    # MPS fallback: Polar Express causes NaN on MPS, use AdamW for matrix params instead
+    if IS_MPS:
+        param_groups = [
+            # AdamW groups
+            dict(kind='adamw', params=lm_head_params, lr=LM_HEAD_LR * scale, initial_lr=LM_HEAD_LR * scale),
+            dict(kind='adamw', params=embedding_params, lr=EMBEDDING_LR * scale, initial_lr=EMBEDDING_LR * scale),
+            dict(kind='adamw', params=value_embeds_params, lr=EMBEDDING_LR * scale, initial_lr=EMBEDDING_LR * scale),
+            dict(kind='adamw', params=resid_params, lr=RESID_LAMBDA_LR, initial_lr=RESID_LAMBDA_LR),
+            dict(kind='adamw', params=x0_params, lr=X0_LAMBDA_LR, initial_lr=X0_LAMBDA_LR, betas=X0_BETAS),
+            # Matrix params with AdamW (Muon NaN workaround for MPS)
+            dict(kind='adamw', params=muon_params, lr=MATRIX_LR * 0.5, initial_lr=MATRIX_LR * 0.5, betas=(0.9, 0.95)),
+        ]
+    else:
+        param_groups = [
+            # AdamW groups
+            dict(kind='adamw', params=lm_head_params, lr=LM_HEAD_LR * scale, initial_lr=LM_HEAD_LR * scale),
+            dict(kind='adamw', params=embedding_params, lr=EMBEDDING_LR * scale, initial_lr=EMBEDDING_LR * scale),
+            dict(kind='adamw', params=value_embeds_params, lr=EMBEDDING_LR * scale, initial_lr=EMBEDDING_LR * scale),
+            dict(kind='adamw', params=resid_params, lr=RESID_LAMBDA_LR, initial_lr=RESID_LAMBDA_LR),
+            dict(kind='adamw', params=x0_params, lr=X0_LAMBDA_LR, initial_lr=X0_LAMBDA_LR, betas=X0_BETAS),
+            # Muon group (CUDA only)
+            dict(kind='muon', params=muon_params, lr=MATRIX_LR, initial_lr=MATRIX_LR, momentum=MUON_MOMENTUM, ns_steps=MUON_NS_STEPS),
+        ]
     
     return param_groups
 
@@ -875,9 +906,12 @@ def train():
     optimizer = MuonAdamW(param_groups)
     
     # Calculate batch size and gradient accumulation
+    # MPS: micro_batch=2 (like train_clean.py), CUDA: micro_batch=64
+    device_batch_size = 2 if IS_MPS else 64
     batch_size = TOTAL_BATCH_SIZE // MAX_SEQ_LEN
-    grad_accum_steps = max(1, batch_size // 64)  # micro batch size of 64
-    micro_batch_size = batch_size // grad_accum_steps
+    tokens_per_fwdbwd = device_batch_size * MAX_SEQ_LEN
+    grad_accum_steps = max(1, TOTAL_BATCH_SIZE // tokens_per_fwdbwd)
+    micro_batch_size = device_batch_size
     
     print(f"Batch size: {batch_size}, micro_batch: {micro_batch_size}, grad_accum: {grad_accum_steps}", file=sys.stderr, flush=True)
     

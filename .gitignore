@@ -21,3 +21,10 @@ dev/
 
 # Results file
 results.tsv
+
+# Development
+.idea
+.kiro
+sandbox
+codex-main
+run.log
